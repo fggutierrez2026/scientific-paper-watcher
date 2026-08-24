@@ -1,6 +1,8 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
 
 # Virtual environments
 .venv/
@@ -9,16 +11,29 @@ venv/
 # Enviroment variables
 .env
 
-# IDE/editor
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Linting / tooling
+.ruff_cache/
+
+# IDEs
 .vscode/
 .idea/
 
 # OS files
 .DS_Store
 
-# Local database
+# Local data
 data/*.db
+data/*.sqlite
+data/*.sqlite3
 
 # Generated reports
 reports/*.md
+
+# Logs
+*.log
 
