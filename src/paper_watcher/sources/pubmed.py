@@ -1,12 +1,20 @@
 from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
 import xml.etree.ElementTree as ET
 
 import requests
-from paper_watcher.config import load_config
-
-from dataclasses import dataclass
 
 from paper_watcher.config import load_config
+from paper_watcher.exceptions import (
+    APIError,
+    InvalidResponseError,
+    NetworkError,
+    RateLimitError,
+    RequestTimeoutError,
+    ServiceUnavailableError,
+)
 from paper_watcher.models import Paper
 
 ESEARCH_URL = (
@@ -19,6 +27,94 @@ EFETCH_URL = (
 
 TOOL_NAME = "scientific-paper-watcher"
 
+logger = logging.getLogger(__name__)
+
+def _get_pubmed(
+    url: str,
+    params: dict[str, str | int],
+) -> requests.Response:
+    config = load_config()
+
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            timeout=config.request_timeout,
+        )
+
+    except requests.exceptions.Timeout as exc:
+        logger.error(
+            "PubMed request timed out after %s seconds",
+            config.request_timeout,
+        )
+
+        raise RequestTimeoutError(
+            f"PubMed request timed out after "
+            f"{config.request_timeout} seconds"
+        ) from exc
+
+    except requests.exceptions.ConnectionError as exc:
+        logger.error(
+            "Could not connect to PubMed"
+        )
+
+        raise NetworkError(
+            "Could not connect to PubMed"
+        ) from exc
+
+    except requests.exceptions.RequestException as exc:
+        logger.error(
+            "Unexpected error while requesting PubMed: %s",
+            exc,
+        )
+
+        raise APIError(
+            "Unexpected error while requesting PubMed"
+        ) from exc
+
+    _check_response_status(response)
+
+    return response
+
+def _check_response_status(
+    response: requests.Response,
+) -> None:
+    status_code = response.status_code
+
+    if status_code == 429:
+        logger.warning(
+            "PubMed rate limit reached: HTTP %d",
+            status_code,
+        )
+
+        raise RateLimitError(
+            "PubMed rate limit reached (HTTP 429)"
+        )
+
+    if status_code in {500, 502, 503, 504}:
+        logger.warning(
+            "PubMed service temporarily unavailable: HTTP %d",
+            status_code,
+        )
+
+        raise ServiceUnavailableError(
+            f"PubMed service temporarily unavailable "
+            f"(HTTP {status_code})"
+        )
+
+    try:
+        response.raise_for_status()
+
+    except requests.exceptions.HTTPError as exc:
+        logger.error(
+            "PubMed returned HTTP %d",
+            status_code,
+        )
+
+        raise APIError(
+            f"PubMed returned HTTP {status_code}"
+        ) from exc
+    
 @dataclass(frozen=True)
 class PubMedSearchResult:
     query: str
@@ -51,21 +147,50 @@ def search_pubmed(query: str,
         "email": config.ncbi_email,
     }
 
-    response = requests.get(
-        ESEARCH_URL,
-        params=params,
-        timeout=config.request_timeout,
+    logger.info(
+        "Searching PubMed for query=%r max_results=%d",
+        query,
+        max_results,
     )
 
-    response.raise_for_status()
+    response = _get_pubmed(ESEARCH_URL, params)
 
-    data = response.json()
-    search_result = data["esearchresult"]
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError as exc:
+        logger.error(
+            "PubMed Esearch returned invalid JSON: %s",
+            exc,
+        )
+        raise InvalidResponseError(
+            "PubMed Esearch returned invalid JSON"
+        ) from exc
+
+    try:
+        search_result = data["esearchresult"]
+
+        total_count = int(search_result["count"])
+
+        pmids = search_result["idlist"]
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.error(
+            "PubMed Esearch returned unexpected JSON structure: %s",
+            exc,
+        )
+        raise InvalidResponseError(
+            "PubMed Esearch returned unexpected JSON structure"
+        ) from exc
+
+    logger.info(
+        "PubMed search completed: total_count=%d returned=%d",
+        total_count,
+        len(pmids),
+    )  
 
     return PubMedSearchResult(
         query=query,
-        total_count=int(search_result["count"]),
-        pmids=search_result["idlist"],
+        total_count=total_count,
+        pmids=pmids,
     )
 
 def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
@@ -97,7 +222,15 @@ def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
 
     response.raise_for_status()
 
-    return parse_pubmed_xml(response.content)
+    papers = parse_pubmed_xml(response.content)
+
+    logger.info(
+        "Parsed %d PubMed articles for %d PMIDs",
+        len(papers),
+        len(pmids),
+    )
+
+    return papers
 
 def _element_text(element: ET.Element | None,) -> str | None:
     """
@@ -339,7 +472,17 @@ def parse_pubmed_xml(xml_content: bytes) -> list[Paper]:
     Args:
         xml_content (bytes): The XML content returned by PubMed.
     """
-    root = ET.fromstring(xml_content)
+    try:
+        root = ET.fromstring(xml_content)
+    except ET.ParseError as exc:
+        logger.error(
+            "PubMed EFetch returned invalid XML: %s",
+            exc,
+        )
+        raise InvalidResponseError(
+            " PubMed EFetch returned invalid XML"
+        ) from exc
+    
     papers: list[Paper] = []
 
     for article in root.findall("./PubmedArticle"):

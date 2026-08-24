@@ -1,10 +1,17 @@
 from paper_watcher.config import load_config
 from paper_watcher.sources.pubmed import search_pubmed
+from paper_watcher.logging_config import setup_logging
 
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
     search_pubmed,
 )
+
+import logging
+
+from paper_watcher.exceptions import PaperWatcherError
+
+logger = logging.getLogger(__name__)
 
 def ensure_directories() -> None:
     """
@@ -21,12 +28,14 @@ def ensure_directories() -> None:
         exist_ok=True,
     )
 
-def main() -> None:
+def run() -> None:
     """
-    Main entry point for the application.
+    Run entry point for the application.
     """
+    setup_logging()
 
     config = load_config()
+
     ensure_directories()
 
     query = "protein design"
@@ -68,6 +77,23 @@ def main() -> None:
 
     print(f"Request timeout: "
           f"{config.request_timeout} seconds")
+
+def main() -> int:
+    """
+    Main function to run the application.
+    """
+    try:
+        run()
+
+    except PaperWatcherError as exc:
+        logger.error("An error occurred: %s", exc)
+
+        print()
+        print("Scientific Paper Watcher failed:")
+        print(exc)
+        return 1
+
+    return 0
 
 if __name__ == "__main__":
     main()
