@@ -16,6 +16,7 @@ class Config:
     report_dir: Path
     request_timeout: int
     max_retries: int
+    ncbi_email: str
 
 def load_config() -> Config:
     database_path = PROJECT_ROOT / os.getenv(
@@ -36,9 +37,12 @@ def load_config() -> Config:
         os.getenv("MAX_RETRIES", "3",)
     )
 
+    ncbi_email = os.getenv("NCBI_EMAIL", "")
+
     return Config(
         database_path=database_path,
         report_dir=report_dir,
         request_timeout=request_timeout,
         max_retries=max_retries,
+        ncbi_email=ncbi_email,
     )

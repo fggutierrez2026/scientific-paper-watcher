@@ -1,4 +1,10 @@
 from paper_watcher.config import load_config
+from paper_watcher.sources.pubmed import search_pubmed
+
+from paper_watcher.sources.pubmed import (
+    fetch_pubmed_articles,
+    search_pubmed,
+)
 
 def ensure_directories() -> None:
     """
@@ -23,12 +29,45 @@ def main() -> None:
     config = load_config()
     ensure_directories()
 
+    query = "protein design"
+
     print("Scientific Paper Watcher")
     print("-------------------------")
-    print(f"Database Path: {config.database_path}")
-    print(f"Report Directory: {config.report_dir}")
-    print(f"Request timeout: {config.request_timeout} seconds")
-    print(f"Max retries: {config.max_retries}")
+    print(f"Searching PubMed for query: '{query}'")
+    print()
+
+    result = search_pubmed(query=query,
+                           max_results=5,
+    )
+
+    print(f"Results found: {result.total_count}")
+    print()
+
+    papers = fetch_pubmed_articles(result.pmids)
+    print(f"Articles retrieved: {len(papers)}")
+    print()
+
+    for index, paper in enumerate(papers, start=1):
+        print(f"{index}. {paper.title}")
+        print(f"   PMID: {paper.external_id}")
+
+        if paper.authors:
+            authors = ", ".join(paper.authors[:3])
+
+            if len(paper.authors) > 3:
+                authors += ", et al."
+
+            print(f"   Authors: {authors}")
+
+        print(f"   Journal: {paper.journal}")
+        print(f"   Publication date: {paper.publication_date}")
+        print(f"   Electronic date: {paper.electronic_date}")
+        print(f"   PubMed date: {paper.pubmed_date}")
+        print(f"   DOI: {paper.doi}")
+        print()
+
+    print(f"Request timeout: "
+          f"{config.request_timeout} seconds")
 
 if __name__ == "__main__":
     main()
