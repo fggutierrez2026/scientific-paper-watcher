@@ -15,6 +15,13 @@ import logging
 
 from paper_watcher.exceptions import PaperWatcherError
 
+from paper_watcher.storage.sqlite import (
+    count_papers,
+    database_connection,
+    initialize_database,
+    insert_papers,
+)
+
 logger = logging.getLogger(__name__)
 
 def ensure_directories() -> None:
@@ -125,6 +132,10 @@ def run(
 
     config = load_config()
 
+    initialize_database(
+        config.database_path
+    )
+
     ensure_directories()
 
     print()
@@ -197,6 +208,39 @@ def run(
     print(
         f"Total collected papers: "
         f"{len(all_papers)}"
+    )
+
+    print()
+    print("=" * 70)
+    print("STORAGE")
+    print("=" * 70)
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+
+        inserted_ids = insert_papers(
+            connection,
+            all_papers,
+        )
+
+        total_stored = count_papers(
+            connection
+        )
+
+    print(
+        f"Database: "
+        f"{config.database_path}"
+    )
+
+    print(
+        f"Papers inserted: "
+        f"{len(inserted_ids)}"
+    )
+
+    print(
+        f"Total papers stored: "
+        f"{total_stored}"
     )
 
     print(f"Request timeout: "
