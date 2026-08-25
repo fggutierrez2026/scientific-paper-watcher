@@ -7,6 +7,8 @@ from paper_watcher.sources.pubmed import (
     search_pubmed,
 )
 
+from paper_watcher.sources.arxiv import search_arxiv
+
 import logging
 
 from paper_watcher.exceptions import PaperWatcherError
@@ -28,6 +30,45 @@ def ensure_directories() -> None:
         exist_ok=True,
     )
 
+def print_paper(paper) -> None:
+    print(f"Source: {paper.source}")
+    print(f"ID: {paper.external_id}")
+    print(f"Title: {paper.title}")
+
+    if paper.authors:
+        authors = ", ".join(paper.authors[:3])
+
+        if len(paper.authors) > 3:
+            authors += ", et al."
+
+        print(f"Authors: {authors}")
+
+    if paper.journal:
+        print(f"Journal: {paper.journal}")
+
+    if paper.publication_date:
+        print(
+            f"Publication date: "
+            f"{paper.publication_date}"
+        )
+
+    if paper.electronic_date:
+        print(
+            f"Electronic date: "
+            f"{paper.electronic_date}"
+        )
+
+    if paper.pubmed_date:
+        print(
+            f"PubMed date: "
+            f"{paper.pubmed_date}"
+        )
+
+    if paper.doi:
+        print(f"DOI: {paper.doi}")
+
+    print()
+
 def run() -> None:
     """
     Run entry point for the application.
@@ -39,41 +80,78 @@ def run() -> None:
     ensure_directories()
 
     query = "protein design"
-
-    print("Scientific Paper Watcher")
-    print("-------------------------")
-    print(f"Searching PubMed for query: '{query}'")
+    max_results = 5
     print()
+    print("=" * 70)
+    print("PUBMED")
+    print("=" * 70)
 
-    result = search_pubmed(query=query,
-                           max_results=5,
+    pubmed_result = search_pubmed(
+        query,
+        max_results=max_results,
     )
 
-    print(f"Results found: {result.total_count}")
+    pubmed_papers = fetch_pubmed_articles(
+        pubmed_result.pmids
+    )
+
+    print(
+        f"Total PubMed results: "
+        f"{pubmed_result.total_count}"
+    )
+    print(
+        f"Articles retrieved: "
+        f"{len(pubmed_papers)}"
+    )
     print()
 
-    papers = fetch_pubmed_articles(result.pmids)
-    print(f"Articles retrieved: {len(papers)}")
+    for paper in pubmed_papers:
+        print_paper(paper)
+
+    print()
+    print("=" * 70)
+    print("ARXIV")
+    print("=" * 70)
+
+    arxiv_result = search_arxiv(
+        query,
+        max_results=max_results,
+    )
+
+    print(
+        f"Total arXiv results: "
+        f"{arxiv_result.total_count}"
+    )
+    print(
+        f"Articles retrieved: "
+        f"{len(arxiv_result.papers)}"
+    )
     print()
 
-    for index, paper in enumerate(papers, start=1):
-        print(f"{index}. {paper.title}")
-        print(f"   PMID: {paper.external_id}")
+    for paper in arxiv_result.papers:
+        print_paper(paper)
 
-        if paper.authors:
-            authors = ", ".join(paper.authors[:3])
+    all_papers = (pubmed_papers + arxiv_result.papers)
 
-            if len(paper.authors) > 3:
-                authors += ", et al."
+    print()
+    print("=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
 
-            print(f"   Authors: {authors}")
+    print(
+        f"PubMed papers: "
+        f"{len(pubmed_papers)}"
+    )
 
-        print(f"   Journal: {paper.journal}")
-        print(f"   Publication date: {paper.publication_date}")
-        print(f"   Electronic date: {paper.electronic_date}")
-        print(f"   PubMed date: {paper.pubmed_date}")
-        print(f"   DOI: {paper.doi}")
-        print()
+    print(
+        f"arXiv papers: "
+        f"{len(arxiv_result.papers)}"
+    )
+
+    print(
+        f"Total collected papers: "
+        f"{len(all_papers)}"
+    )
 
     print(f"Request timeout: "
           f"{config.request_timeout} seconds")
