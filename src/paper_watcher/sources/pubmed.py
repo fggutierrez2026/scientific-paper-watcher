@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+
 import logging
 from dataclasses import dataclass
 import xml.etree.ElementTree as ET
 
 import requests
+from tenacity import (
+    Retrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from paper_watcher.config import load_config
 from paper_watcher.exceptions import (
@@ -29,28 +39,81 @@ TOOL_NAME = "scientific-paper-watcher"
 
 logger = logging.getLogger(__name__)
 
-def _get_pubmed(
+RETRYABLE_EXCEPTIONS = (
+    RequestTimeoutError,
+    NetworkError,
+    RateLimitError,
+    ServiceUnavailableError,
+)
+
+DEFAULT_RETRY_WAIT = wait_exponential(
+    multiplier=2,
+    min=2,
+    max=8,
+)
+
+def _parse_retry_after(
+    value: str | None,
+) -> float | None:
+    if not value:
+        return None
+
+    value = value.strip()
+
+    # Caso 1: Retry-After expresado en segundos.
+    try:
+        seconds = float(value)
+
+        if seconds >= 0:
+            return seconds
+
+    except ValueError:
+        pass
+
+    # Caso 2: Retry-After expresado como fecha HTTP.
+    try:
+        retry_time = parsedate_to_datetime(value)
+
+    except (TypeError, ValueError, OverflowError):
+        logger.warning(
+            "Invalid Retry-After header received: %r",
+            value,
+        )
+
+        return None
+
+    if retry_time.tzinfo is None:
+        retry_time = retry_time.replace(
+            tzinfo=timezone.utc
+        )
+
+    delay = (
+        retry_time
+        - datetime.now(timezone.utc)
+    ).total_seconds()
+
+    return max(0.0, delay)
+
+def _request_pubmed_once(
     url: str,
     params: dict[str, str | int],
-) -> requests.Response:
-    config = load_config()
+    timeout: int,) -> requests.Response:
 
     try:
         response = requests.get(
             url,
             params=params,
-            timeout=config.request_timeout,
+            timeout=timeout,
         )
 
     except requests.exceptions.Timeout as exc:
         logger.error(
-            "PubMed request timed out after %s seconds",
-            config.request_timeout,
+            "PubMed request timed out after %d seconds",
+            timeout,
         )
 
         raise RequestTimeoutError(
-            f"PubMed request timed out after "
-            f"{config.request_timeout} seconds"
+            f"PubMed request timed out after {timeout} seconds"
         ) from exc
 
     except requests.exceptions.ConnectionError as exc:
@@ -76,19 +139,73 @@ def _get_pubmed(
 
     return response
 
+def _wait_for_retry(retry_state) -> float:
+    exception = None
+
+    if retry_state.outcome is not None:
+        exception = retry_state.outcome.exception()
+
+    if (
+        isinstance(exception, RateLimitError)
+        and exception.retry_after is not None
+    ):
+        logger.info(
+            "Respecting server Retry-After: %.1f seconds",
+            exception.retry_after,
+        )
+
+        return exception.retry_after
+
+    return DEFAULT_RETRY_WAIT(retry_state)
+
+def _get_pubmed(
+    url: str,
+    params: dict[str, str | int],
+) -> requests.Response:
+    config = load_config()
+
+    retryer = Retrying(
+        retry=retry_if_exception_type(
+            RETRYABLE_EXCEPTIONS
+        ),
+        stop=stop_after_attempt(
+            config.max_retries + 1
+        ),
+        wait=_wait_for_retry,
+        before_sleep=before_sleep_log(
+            logger,
+            logging.WARNING,
+        ),
+        reraise=True,
+    )
+
+    return retryer(
+        _request_pubmed_once,
+        url,
+        params,
+        config.request_timeout,
+    )
+
 def _check_response_status(
     response: requests.Response,
 ) -> None:
     status_code = response.status_code
 
     if status_code == 429:
+        retry_after = _parse_retry_after(
+            response.headers.get("Retry-After")
+        )
+
         logger.warning(
-            "PubMed rate limit reached: HTTP %d",
+            "PubMed rate limit reached: HTTP %d "
+            "retry_after=%s",
             status_code,
+            retry_after,
         )
 
         raise RateLimitError(
-            "PubMed rate limit reached (HTTP 429)"
+            "PubMed rate limit reached (HTTP 429)",
+            retry_after=retry_after,
         )
 
     if status_code in {500, 502, 503, 504}:
