@@ -614,9 +614,11 @@ def parse_pubmed_xml(xml_content: bytes) -> list[Paper]:
         if not pmid or not title:
             continue
 
+        clean_pmid = pmid.strip()
+
         paper = Paper(
             source="pubmed",
-            external_id=pmid.strip(),
+            external_id=clean_pmid,
             title=title,
             authors=_parse_authors(article),
             abstract=_parse_abstract(article),
@@ -625,6 +627,7 @@ def parse_pubmed_xml(xml_content: bytes) -> list[Paper]:
             electronic_date=_parse_electronic_date(article),
             pubmed_date=_parse_pubmed_date(article),
             doi=_parse_doi(article),
+            url=f"https://pubmed.ncbi.nlm.nih.gov/{clean_pmid}/",
         )
 
         papers.append(paper)

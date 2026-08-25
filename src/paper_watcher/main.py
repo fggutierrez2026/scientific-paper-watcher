@@ -1,3 +1,5 @@
+import argparse
+from paper_watcher import __version__
 from paper_watcher.config import load_config
 from paper_watcher.sources.pubmed import search_pubmed
 from paper_watcher.logging_config import setup_logging
@@ -69,7 +71,53 @@ def print_paper(paper) -> None:
 
     print()
 
-def run() -> None:
+def _positive_int(value: str) -> int:
+    number = int(value)
+
+    if number < 1:
+        raise argparse.ArgumentTypeError(
+            "must be greater than or equal to 1"
+        )
+
+    return number
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="paper-watcher",
+        description=(
+            "Search scientific papers from "
+            "PubMed and arXiv."
+        ),
+    )
+
+    parser.add_argument(
+        "--query",
+        required=True,
+        help="Scientific search query.",
+    )
+
+    parser.add_argument(
+        "--max-results",
+        type=_positive_int,
+        default=5,
+        help=(
+            "Maximum number of papers to retrieve "
+            "from each source (default: 5)."
+        ),
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
+    return parser
+
+def run(
+    query: str,
+    max_results: int,
+) -> None:
     """
     Run entry point for the application.
     """
@@ -79,8 +127,6 @@ def run() -> None:
 
     ensure_directories()
 
-    query = "protein design"
-    max_results = 5
     print()
     print("=" * 70)
     print("PUBMED")
@@ -156,19 +202,30 @@ def run() -> None:
     print(f"Request timeout: "
           f"{config.request_timeout} seconds")
 
-def main() -> int:
-    """
-    Main function to run the application.
-    """
+def main(
+    argv: list[str] | None = None,
+) -> int:
+    setup_logging()
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
     try:
-        run()
+        run(
+            query=args.query,
+            max_results=args.max_results,
+        )
 
     except PaperWatcherError as exc:
-        logger.error("An error occurred: %s", exc)
+        logger.error(
+            "Scientific Paper Watcher failed: %s",
+            exc,
+        )
 
         print()
         print("Scientific Paper Watcher failed:")
         print(exc)
+
         return 1
 
     return 0

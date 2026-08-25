@@ -37,3 +37,7 @@ reports/*.md
 # Logs
 *.log
 
+# Packaging
+*.egg-info/
+build/
+dist/

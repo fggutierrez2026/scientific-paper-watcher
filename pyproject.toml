@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "scientific-paper-watcher"
+dynamic = ["version"]
+description = "Search and collect scientific papers from PubMed and arXiv."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    "requests",
+    "python-dotenv",
+    "tenacity",
+]
+
+
+[project.scripts]
+paper-watcher = "paper_watcher.main:main"
+
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
+[tool.setuptools.dynamic]
+version = {attr = "paper_watcher.__version__"}

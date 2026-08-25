@@ -164,14 +164,14 @@ def parse_arxiv_xml(
             )
         )
 
+        arxiv_id = _extract_arxiv_id(
+            entry_id
+        )
+
         paper = Paper(
             source="arxiv",
-            external_id=_extract_arxiv_id(
-                entry_id
-            ),
-            title=" ".join(
-                title.split()
-            ),
+            external_id=arxiv_id,
+            title=" ".join(title.split()),
             authors=authors,
             abstract=abstract,
             journal=journal_ref,
@@ -179,6 +179,7 @@ def parse_arxiv_xml(
             electronic_date=publication_date,
             pubmed_date=None,
             doi=doi,
+            url=f"https://arxiv.org/abs/{arxiv_id}",
         )
 
         papers.append(paper)

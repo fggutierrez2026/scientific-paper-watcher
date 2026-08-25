@@ -12,3 +12,12 @@ class Paper:
     electronic_date: str | None
     pubmed_date: str | None
     doi: str | None
+    url: str | None
+
+    @property
+    def published(self) -> str | None:
+        return (
+            self.pubmed_date
+            or self.electronic_date
+            or self.publication_date
+        )
