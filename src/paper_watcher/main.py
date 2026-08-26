@@ -119,22 +119,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--query",
-        type=_non_empty_text,
-        help="Scientific search query.",
-    )
-
-    parser.add_argument(
-        "--max-results",
-        type=_positive_int,
-        default=5,
-        help=(
-            "Maximum number of papers to retrieve "
-            "from each source (default: 5)."
-        ),
-    )
-
-    parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
@@ -142,6 +126,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(
         dest="command",
+        required=True,
+    )
+
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Search configured scientific sources.",
+    )
+
+    run_parser.add_argument(
+        "--query",
+        type=_non_empty_text,
+        help=(
+            "Scientific query to run. "
+            "If omitted, stored watch queries "
+            "will be used."
+        ),
+    )
+
+    run_parser.add_argument(
+        "--max-results",
+        type=_positive_int,
+        default=5,
+        help=(
+            "Maximum number of papers to retrieve "
+            "from each source (default: 5)."
+        ),
     )
 
     add_query_parser = subparsers.add_parser(
@@ -292,7 +302,10 @@ def run(
             + " | ".join(source_warnings)
         )
 
-    all_papers = (pubmed_papers + arxiv_result.papers)
+    all_papers = (
+        pubmed_papers
+        + arxiv_papers
+    )
 
     print()
     print("=" * 70)
@@ -431,6 +444,110 @@ def list_queries_command() -> None:
             f"{index}. {query}"
         )
 
+def run_command(
+    query: str | None,
+    max_results: int,
+) -> None:
+    # Modo 1:
+    # El usuario proporcionó una consulta concreta.
+    if query is not None:
+        run(
+            query=query,
+            max_results=max_results,
+        )
+        return
+
+    # Modo 2:
+    # No se proporcionó --query.
+    # Ejecutamos las consultas guardadas en SQLite.
+    config = load_config()
+
+    initialize_database(
+        config.database_path
+    )
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+        queries = list_watch_queries(
+            connection
+        )
+
+    if not queries:
+        print("No stored queries.")
+        return
+
+    print()
+    print("=" * 70)
+    print("STORED QUERIES")
+    print("=" * 70)
+
+    print(
+        f"Queries to run: {len(queries)}"
+    )
+
+    successful_queries = 0
+    failed_queries = 0
+
+    for index, stored_query in enumerate(
+        queries,
+        start=1,
+    ):
+        print()
+        print("=" * 70)
+        print(
+            f"QUERY {index}/{len(queries)}"
+        )
+        print("=" * 70)
+
+        print(
+            f"Query: {stored_query}"
+        )
+
+        try:
+            run(
+                query=stored_query,
+                max_results=max_results,
+            )
+
+            successful_queries += 1
+
+        except PaperWatcherError as exc:
+            failed_queries += 1
+
+            logger.error(
+                "Stored query failed: "
+                "query=%r error=%s",
+                stored_query,
+                exc,
+            )
+
+            print()
+            print(
+                f"Query failed: {stored_query}"
+            )
+
+            print(
+                f"Reason: {exc}"
+            )
+
+    print()
+    print("=" * 70)
+    print("BATCH SUMMARY")
+    print("=" * 70)
+
+    print(
+        f"Queries processed: {len(queries)}"
+    )
+
+    print(
+        f"Queries successful: {successful_queries}"
+    )
+
+    print(
+        f"Queries failed: {failed_queries}"
+    )
+
 def main(
     argv: list[str] | None = None,
 ) -> int:
@@ -440,26 +557,25 @@ def main(
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "run":
+            run_command(
+                query=args.query,
+                max_results=args.max_results,
+            )
+
+            return 0
+
         if args.command == "add-query":
             add_query_command(
                 args.watch_query
             )
+
             return 0
 
         if args.command == "list-queries":
             list_queries_command()
+
             return 0
-
-        if args.query is None:
-            parser.error(
-                "--query is required unless using "
-                "add-query or list-queries"
-            )
-
-        run(
-            query=args.query,
-            max_results=args.max_results,
-        )
 
     except PaperWatcherError as exc:
         logger.error(
@@ -468,7 +584,9 @@ def main(
         )
 
         print()
-        print("Scientific Paper Watcher failed:")
+        print(
+            "Scientific Paper Watcher failed:"
+        )
         print(exc)
 
         return 1
