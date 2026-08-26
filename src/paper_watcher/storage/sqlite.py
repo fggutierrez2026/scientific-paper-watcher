@@ -8,6 +8,10 @@ from pathlib import Path
 
 from paper_watcher.models import Paper
 
+from paper_watcher.normalization import (
+    normalize_doi,
+)
+
 PAPERS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS papers (
     id INTEGER PRIMARY KEY,
@@ -22,6 +26,27 @@ CREATE TABLE IF NOT EXISTS papers (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
+
+# A paper is uniquely identified inside a source by
+# (source, external_id).
+#
+# DOI is intentionally not UNIQUE because the same
+# scholarly work may appear in more than one source,
+# for example PubMed and arXiv.
+#
+# Normalized titles are used only as a secondary
+# matching signal and are not safe as a hard
+# database uniqueness constraint.
+
+PAPERS_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_papers_source_external_id
+ON papers (
+    source,
+    external_id
+);
+"""
+
 
 @contextmanager
 def database_connection(
@@ -64,13 +89,17 @@ def initialize_database(
             PAPERS_SCHEMA
         )
 
+        connection.execute(
+            PAPERS_UNIQUE_INDEX
+        )
+
 def insert_paper(
     connection: sqlite3.Connection,
     paper: Paper,
-) -> int:
+) -> int | None:
     cursor = connection.execute(
         """
-        INSERT INTO papers (
+        INSERT OR IGNORE INTO papers (
             source,
             external_id,
             doi,
@@ -85,7 +114,9 @@ def insert_paper(
         (
             paper.source,
             paper.external_id,
-            paper.doi,
+            normalize_doi(
+                paper.doi
+            ),
             paper.title,
             paper.abstract,
             json.dumps(
@@ -97,13 +128,16 @@ def insert_paper(
         ),
     )
 
+    if cursor.rowcount == 0:
+        return None
+
     return cursor.lastrowid
 
 def insert_papers(
     connection: sqlite3.Connection,
     papers: list[Paper],
 ) -> list[int]:
-    paper_ids: list[int] = []
+    inserted_ids: list[int] = []
 
     for paper in papers:
         paper_id = insert_paper(
@@ -111,11 +145,12 @@ def insert_papers(
             paper,
         )
 
-        paper_ids.append(
-            paper_id
-        )
+        if paper_id is not None:
+            inserted_ids.append(
+                paper_id
+            )
 
-    return paper_ids
+    return inserted_ids
 
 def count_papers(
     connection: sqlite3.Connection,
