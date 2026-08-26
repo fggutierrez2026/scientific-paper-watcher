@@ -91,10 +91,16 @@ def render_report_markdown(
     query: str,
     papers: list[Paper],
     generated_at: datetime | None = None,
+    warnings: list[str] | None = None,
 ) -> str:
     if generated_at is None:
-        generated_at = datetime.now().astimezone()
+        generated_at = (
+            datetime.now().astimezone()
+        )
 
+    if warnings is None:
+        warnings = []
+    
     lines: list[str] = []
 
     lines.append(
@@ -117,18 +123,38 @@ def render_report_markdown(
     lines.append("")
 
     lines.append(
-        f"**Papers:** {len(papers)}"
+        f"**New Papers:** {len(papers)}"
     )
 
     lines.append("")
+
+    if warnings:
+        lines.append(
+            "## Source warnings"
+        )
+
+        lines.append("")
+
+        for warning in warnings:
+            lines.append(
+                f"- {warning}"
+            )
+
+        lines.append("")
 
     lines.append("---")
     lines.append("")
 
     if not papers:
-        lines.append(
-            "_No papers found._"
-        )
+        if warnings:
+            lines.append(
+                "_No new papers found among sources "
+                "that completed successfully._"
+            )
+        else:
+            lines.append(
+                "_No new papers found._"
+            )
 
         lines.append("")
 
@@ -154,6 +180,7 @@ def write_markdown_report(
     query: str,
     papers: list[Paper],
     generated_at: datetime | None = None,
+    warnings: list[str] | None = None,
 ) -> Path:
     if generated_at is None:
         generated_at = datetime.now().astimezone()
@@ -178,6 +205,7 @@ def write_markdown_report(
         query=query,
         papers=papers,
         generated_at=generated_at,
+        warnings=warnings,
     )
 
     report_path.write_text(

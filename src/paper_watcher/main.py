@@ -4,6 +4,8 @@ from paper_watcher.config import load_config
 from paper_watcher.sources.pubmed import search_pubmed
 from paper_watcher.logging_config import setup_logging
 
+from paper_watcher.models import Paper
+
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
     search_pubmed,
@@ -171,6 +173,13 @@ def run(
 
     config = load_config()
 
+    pubmed_papers: list[Paper] = []
+    arxiv_papers: list[Paper] = []
+
+    source_warnings: list[str] = []
+
+    successful_sources = 0
+
     initialize_database(
         config.database_path
     )
@@ -182,50 +191,106 @@ def run(
     print("PUBMED")
     print("=" * 70)
 
-    pubmed_result = search_pubmed(
-        query,
-        max_results=max_results,
-    )
+    try:
+        # Aquí conserva tu código PubMed actual:
+        #
+        # search_pubmed(...)
+        # fetch_pubmed_articles(...)
+        # impresión de resultados
+        #
+        # Debe terminar dejando los Paper en:
+        # pubmed_papers
 
-    pubmed_papers = fetch_pubmed_articles(
-        pubmed_result.pmids
-    )
+        pubmed_result = search_pubmed(
+            query,
+            max_results=max_results,
+        )
 
-    print(
-        f"Total PubMed results: "
-        f"{pubmed_result.total_count}"
-    )
-    print(
-        f"Articles retrieved: "
-        f"{len(pubmed_papers)}"
-    )
-    print()
+        pubmed_papers = fetch_pubmed_articles(
+            pubmed_result.pmids
+        )
 
-    for paper in pubmed_papers:
-        print_paper(paper)
+        print(
+            f"Total PubMed results: "
+            f"{pubmed_result.total_count}"
+        )
+        print(
+            f"Articles retrieved: "
+            f"{len(pubmed_papers)}"
+        )
+        print()
+
+        for paper in pubmed_papers:
+            print_paper(paper)
+
+        successful_sources += 1
+
+    except PaperWatcherError as exc:
+        warning = (
+            f"PubMed unavailable: {exc}"
+        )
+
+        logger.warning(warning)
+
+        source_warnings.append(
+            warning
+        )
+
+        print()
+        print(warning)
 
     print()
     print("=" * 70)
     print("ARXIV")
     print("=" * 70)
 
-    arxiv_result = search_arxiv(
-        query,
-        max_results=max_results,
-    )
+    try:
+        arxiv_result = search_arxiv(
+            query=query,
+            max_results=max_results,
+        )
 
-    print(
-        f"Total arXiv results: "
-        f"{arxiv_result.total_count}"
-    )
-    print(
-        f"Articles retrieved: "
-        f"{len(arxiv_result.papers)}"
-    )
-    print()
+        arxiv_papers = (
+            arxiv_result.papers
+        )
 
-    for paper in arxiv_result.papers:
-        print_paper(paper)
+        print(
+            f"Total arXiv results: "
+            f"{arxiv_result.total_count}"
+        )
+        print(
+            f"Articles retrieved: "
+            f"{len(arxiv_result.papers)}"
+        )
+        print()
+
+        for paper in arxiv_result.papers:
+            print_paper(paper)
+
+        successful_sources += 1
+
+        # Conserva aquí las impresiones que
+        # ya utilizabas para arXiv.
+
+    except PaperWatcherError as exc:
+        warning = (
+            f"arXiv unavailable: {exc}"
+        )
+
+        logger.warning(warning)
+
+        source_warnings.append(
+            warning
+        )
+
+        print()
+        print(warning)
+
+    if successful_sources == 0:
+        raise PaperWatcherError(
+            "All paper sources failed: "
+            + " | ".join(source_warnings)
+        )
 
     all_papers = (pubmed_papers + arxiv_result.papers)
 
@@ -257,8 +322,7 @@ def run(
     with database_connection(
         config.database_path
     ) as connection:
-
-        inserted_ids = insert_papers(
+        insert_result = insert_papers(
             connection,
             all_papers,
         )
@@ -268,24 +332,35 @@ def run(
         )
 
     print(
-        f"Database: "
-        f"{config.database_path}"
+        f"Database: {config.database_path}"
     )
 
     print(
-        f"Papers inserted: "
-        f"{len(inserted_ids)}"
+        f"Papers retrieved: {insert_result.processed_count}"
     )
 
     print(
-        f"Total papers stored: "
-        f"{total_stored}"
+        f"New papers: {insert_result.inserted_count}"
+    )
+
+    print(
+        f"Known papers: {insert_result.known_count}"
+    )
+
+    print(
+        f"Total papers stored: {total_stored}"
     )
 
     report_path = write_markdown_report(
         report_dir=config.report_dir,
         query=query,
-        papers=all_papers,
+        papers=insert_result.new_papers,
+        warnings=source_warnings,
+    )
+
+    print(
+        f"Sources completed: "
+        f"{successful_sources}/2"
     )
 
     print()

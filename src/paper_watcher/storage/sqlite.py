@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from paper_watcher.models import Paper
@@ -63,6 +65,24 @@ ON papers (
 );
 """
 
+@dataclass
+class InsertPapersResult:
+    processed_count: int
+    inserted_ids: list[int]
+    new_papers: list[Paper]
+
+    @property
+    def inserted_count(self) -> int:
+        return len(
+            self.inserted_ids
+        )
+
+    @property
+    def known_count(self) -> int:
+        return (
+            self.processed_count
+            - self.inserted_count
+        )
 
 @contextmanager
 def database_connection(
@@ -161,8 +181,9 @@ def insert_paper(
 def insert_papers(
     connection: sqlite3.Connection,
     papers: list[Paper],
-) -> list[int]:
+) -> InsertPapersResult:
     inserted_ids: list[int] = []
+    new_papers: list[Paper] = []
 
     for paper in papers:
         paper_id = insert_paper(
@@ -170,12 +191,22 @@ def insert_papers(
             paper,
         )
 
-        if paper_id is not None:
-            inserted_ids.append(
-                paper_id
-            )
+        if paper_id is None:
+            continue
 
-    return inserted_ids
+        inserted_ids.append(
+            paper_id
+        )
+
+        new_papers.append(
+            paper
+        )
+
+    return InsertPapersResult(
+        processed_count=len(papers),
+        inserted_ids=inserted_ids,
+        new_papers=new_papers,
+    )
 
 def count_papers(
     connection: sqlite3.Connection,
