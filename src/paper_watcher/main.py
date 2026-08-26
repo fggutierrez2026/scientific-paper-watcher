@@ -24,6 +24,11 @@ from paper_watcher.storage.sqlite import (
     list_watch_queries,
 )
 
+from paper_watcher.reports.markdown import (
+    write_markdown_report,
+)
+
+
 logger = logging.getLogger(__name__)
 
 def ensure_directories() -> None:
@@ -275,6 +280,21 @@ def run(
     print(
         f"Total papers stored: "
         f"{total_stored}"
+    )
+
+    report_path = write_markdown_report(
+        report_dir=config.report_dir,
+        query=query,
+        papers=all_papers,
+    )
+
+    print()
+    print("=" * 70)
+    print("REPORT")
+    print("=" * 70)
+
+    print(
+        f"Report written to: {report_path}"
     )
 
     print(f"Request timeout: "
