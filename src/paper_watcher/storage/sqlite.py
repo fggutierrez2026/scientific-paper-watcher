@@ -36,6 +36,21 @@ CREATE TABLE IF NOT EXISTS watch_queries (
 );
 """
 
+PAPER_QUERY_MATCHES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS paper_query_matches (
+    paper_id INTEGER NOT NULL,
+    query TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (paper_id, query),
+
+    FOREIGN KEY (paper_id)
+        REFERENCES papers(id)
+        ON DELETE CASCADE
+);
+"""
+
 WATCH_QUERIES_UNIQUE_INDEX = """
 CREATE UNIQUE INDEX IF NOT EXISTS
     ux_watch_queries_query
@@ -64,6 +79,14 @@ ON papers (
     external_id
 );
 """
+
+@dataclass(frozen=True)
+class PaperReportRow:
+    query: str | None
+    title: str
+    authors: list[str]
+    source: str
+    url: str | None
 
 @dataclass
 class InsertPapersResult:
@@ -113,6 +136,10 @@ def connect_database(
 
     connection.row_factory = sqlite3.Row
 
+    connection.execute(
+        "PRAGMA foreign_keys = ON"
+    )
+
     return connection
 
 def initialize_database(
@@ -136,6 +163,10 @@ def initialize_database(
 
         connection.execute(
             WATCH_QUERIES_UNIQUE_INDEX
+        )
+
+        connection.execute(
+            PAPER_QUERY_MATCHES_SCHEMA
         )
 
 def insert_paper(
@@ -178,9 +209,63 @@ def insert_paper(
 
     return cursor.lastrowid
 
+def get_paper_id_by_identity(
+    connection: sqlite3.Connection,
+    paper: Paper,
+) -> int | None:
+    row = connection.execute(
+        """
+        SELECT id
+        FROM papers
+        WHERE source = ?
+          AND external_id = ?
+        """,
+        (
+            paper.source,
+            paper.external_id,
+        ),
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    return int(
+        row["id"]
+    )
+
+def record_paper_query_match(
+    connection: sqlite3.Connection,
+    paper_id: int,
+    query: str,
+) -> bool:
+    cleaned_query = query.strip()
+
+    if not cleaned_query:
+        raise ValueError(
+            "Query cannot be empty"
+        )
+
+    cursor = connection.execute(
+        """
+        INSERT OR IGNORE
+        INTO paper_query_matches (
+            paper_id,
+            query
+        )
+        VALUES (?, ?)
+        """,
+        (
+            paper_id,
+            cleaned_query,
+        ),
+    )
+
+    return cursor.rowcount > 0
+
 def insert_papers(
     connection: sqlite3.Connection,
     papers: list[Paper],
+    query: str | None = None,
 ) -> InsertPapersResult:
     inserted_ids: list[int] = []
     new_papers: list[Paper] = []
@@ -191,16 +276,33 @@ def insert_papers(
             paper,
         )
 
+        if paper_id is not None:
+            inserted_ids.append(
+                paper_id
+            )
+
+            new_papers.append(
+                paper
+            )
+
+        else:
+            paper_id = get_paper_id_by_identity(
+                connection,
+                paper,
+            )
+
         if paper_id is None:
-            continue
+            raise RuntimeError(
+                "Paper could not be resolved "
+                "after insertion"
+            )
 
-        inserted_ids.append(
-            paper_id
-        )
-
-        new_papers.append(
-            paper
-        )
+        if query is not None:
+            record_paper_query_match(
+                connection,
+                paper_id,
+                query,
+            )
 
     return InsertPapersResult(
         processed_count=len(papers),
@@ -323,3 +425,40 @@ def list_watch_query_rows(
         ORDER BY id
         """
     ).fetchall()
+
+def get_all_paper_report_rows(
+    connection: sqlite3.Connection,
+) -> list[PaperReportRow]:
+    rows = connection.execute(
+        """
+        SELECT
+            pqm.query AS query,
+            p.title AS title,
+            p.authors AS authors,
+            p.source AS source,
+            p.url AS url
+        FROM papers AS p
+        LEFT JOIN paper_query_matches AS pqm
+            ON pqm.paper_id = p.id
+        ORDER BY
+            CASE
+                WHEN pqm.query IS NULL THEN 1
+                ELSE 0
+            END,
+            pqm.query,
+            p.title
+        """
+    ).fetchall()
+
+    return [
+        PaperReportRow(
+            query=row["query"],
+            title=row["title"],
+            authors=json.loads(
+                row["authors"]
+            ),
+            source=row["source"],
+            url=row["url"],
+        )
+        for row in rows
+    ]

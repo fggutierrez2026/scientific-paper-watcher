@@ -6,6 +6,10 @@ from pathlib import Path
 
 from paper_watcher.models import Paper
 
+from paper_watcher.storage.sqlite import (
+    PaperReportRow,
+)
+
 def slugify_query(
     query: str,
 ) -> str:
@@ -215,3 +219,126 @@ def write_markdown_report(
 
     return report_path
 
+def escape_markdown_table_cell(
+    value: str,
+) -> str:
+    return (
+        value
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\n", " ")
+        .replace("\r", " ")
+        .strip()
+    )
+
+def render_all_papers_report_markdown(
+    rows: list[PaperReportRow],
+    generated_at: datetime | None = None,
+) -> str:
+    if generated_at is None:
+        generated_at = (
+            datetime.now().astimezone()
+        )
+
+    lines = [
+        "# Scientific Paper Watcher - All Papers",
+        "",
+        (
+            "**Generated:** "
+            f"{generated_at.isoformat()}"
+        ),
+        "",
+        f"**Rows:** {len(rows)}",
+        "",
+    ]
+
+    if not rows:
+        lines.append(
+            "_No papers stored._"
+        )
+        lines.append("")
+
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "| Query | Title | Authors | Source | URL |",
+            "|---|---|---|---|---|",
+        ]
+    )
+
+    for row in rows:
+        query = (
+            row.query
+            if row.query is not None
+            else "legacy / unknown"
+        )
+
+        authors = ", ".join(
+            row.authors
+        )
+
+        url = row.url or ""
+
+        cells = [
+            query,
+            row.title,
+            authors,
+            row.source,
+            url,
+        ]
+
+        cells = [
+            escape_markdown_table_cell(
+                cell
+            )
+            for cell in cells
+        ]
+
+        lines.append(
+            "| "
+            + " | ".join(cells)
+            + " |"
+        )
+
+    lines.append("")
+
+    return "\n".join(lines)
+
+def write_all_papers_report(
+    report_dir: Path,
+    rows: list[PaperReportRow],
+    generated_at: datetime | None = None,
+) -> Path:
+    if generated_at is None:
+        generated_at = (
+            datetime.now().astimezone()
+        )
+
+    report_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    timestamp = generated_at.strftime(
+        "%Y-%m-%d_%H%M%S"
+    )
+
+    report_path = (
+        report_dir
+        / f"all-papers_{timestamp}.md"
+    )
+
+    content = (
+        render_all_papers_report_markdown(
+            rows=rows,
+            generated_at=generated_at,
+        )
+    )
+
+    report_path.write_text(
+        content,
+        encoding="utf-8",
+    )
+
+    return report_path

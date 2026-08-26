@@ -1,7 +1,6 @@
 import argparse
 from paper_watcher import __version__
 from paper_watcher.config import load_config
-from paper_watcher.sources.pubmed import search_pubmed
 from paper_watcher.logging_config import setup_logging
 
 from paper_watcher.models import Paper
@@ -24,10 +23,12 @@ from paper_watcher.storage.sqlite import (
     insert_papers,
     add_watch_query,
     list_watch_queries,
+    get_all_paper_report_rows,
 )
 
 from paper_watcher.reports.markdown import (
     write_markdown_report,
+    write_all_papers_report,
 )
 
 
@@ -170,6 +171,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="List stored watch queries.",
     )
 
+    subparsers.add_parser(
+        "report-all",
+        help=(
+            "Generate a Markdown report "
+            "for all stored papers."
+        ),
+    )
+
     return parser
 
 def run(
@@ -270,11 +279,11 @@ def run(
         )
         print(
             f"Articles retrieved: "
-            f"{len(arxiv_result.papers)}"
+            f"{len(arxiv_papers)}"
         )
         print()
 
-        for paper in arxiv_result.papers:
+        for paper in arxiv_papers:
             print_paper(paper)
 
         successful_sources += 1
@@ -319,7 +328,7 @@ def run(
 
     print(
         f"arXiv papers: "
-        f"{len(arxiv_result.papers)}"
+        f"{len(arxiv_papers)}"
     )
 
     print(
@@ -338,6 +347,7 @@ def run(
         insert_result = insert_papers(
             connection,
             all_papers,
+            query=query,
         )
 
         total_stored = count_papers(
@@ -443,6 +453,39 @@ def list_queries_command() -> None:
         print(
             f"{index}. {query}"
         )
+
+def report_all_command() -> None:
+    config = load_config()
+
+    initialize_database(
+        config.database_path
+    )
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+        rows = get_all_paper_report_rows(
+            connection
+        )
+
+    report_path = write_all_papers_report(
+        report_dir=config.report_dir,
+        rows=rows,
+    )
+
+    print()
+    print("=" * 70)
+    print("ALL PAPERS REPORT")
+    print("=" * 70)
+
+    print(
+        f"Rows: {len(rows)}"
+    )
+
+    print(
+        f"Report written to: "
+        f"{report_path}"
+    )
 
 def run_command(
     query: str | None,
@@ -574,6 +617,11 @@ def main(
 
         if args.command == "list-queries":
             list_queries_command()
+
+            return 0
+
+        if args.command == "report-all":
+            report_all_command()
 
             return 0
 
