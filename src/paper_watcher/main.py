@@ -24,6 +24,8 @@ from paper_watcher.storage.sqlite import (
     add_watch_query,
     list_watch_queries,
     get_all_paper_report_rows,
+    list_watch_query_rows,
+    remove_watch_query,
 )
 
 from paper_watcher.reports.markdown import (
@@ -176,6 +178,25 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Generate a Markdown report "
             "for all stored papers."
+        ),
+    )
+
+    remove_query_parser = (
+        subparsers.add_parser(
+            "remove-query",
+            help=(
+                "Remove a stored watch query "
+                "by its database ID."
+            ),
+        )
+    )
+
+    remove_query_parser.add_argument(
+        "query_id",
+        type=_positive_int,
+        help=(
+            "Database ID of the stored query "
+            "to remove."
         ),
     )
 
@@ -435,23 +456,33 @@ def list_queries_command() -> None:
     with database_connection(
         config.database_path
     ) as connection:
-        queries = list_watch_queries(
+        query_rows = list_watch_query_rows(
             connection
         )
 
-    if not queries:
-        print("No stored queries.")
+    if not query_rows:
+        print(
+            "No stored queries."
+        )
         return
 
+    print()
     print("Stored queries:")
     print()
 
-    for index, query in enumerate(
-        queries,
-        start=1,
-    ):
+    print(
+        f"{'ID':<5} Query"
+    )
+
+    print(
+        f"{'--':<5} "
+        f"{'-' * 40}"
+    )
+
+    for row in query_rows:
         print(
-            f"{index}. {query}"
+            f"{row['id']:<5} "
+            f"{row['query']}"
         )
 
 def report_all_command() -> None:
@@ -591,6 +622,36 @@ def run_command(
         f"Queries failed: {failed_queries}"
     )
 
+def remove_query_command(
+    query_id: int,
+) -> None:
+    config = load_config()
+
+    initialize_database(
+        config.database_path
+    )
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+        removed_query = remove_watch_query(
+            connection,
+            query_id,
+        )
+
+    if removed_query is None:
+        print(
+            f"Query not found: {query_id}"
+        )
+        return
+
+    print()
+    print("Query removed:")
+    print(
+        f"{query_id}. "
+        f"{removed_query}"
+    )
+
 def main(
     argv: list[str] | None = None,
 ) -> int:
@@ -617,6 +678,13 @@ def main(
 
         if args.command == "list-queries":
             list_queries_command()
+
+            return 0
+
+        if args.command == "remove-query":
+            remove_query_command(
+                args.query_id
+            )
 
             return 0
 

@@ -397,6 +397,40 @@ def add_watch_query(
 
     return cursor.lastrowid
 
+def remove_watch_query(
+    connection: sqlite3.Connection,
+    query_id: int,
+) -> str | None:
+    row = connection.execute(
+        """
+        SELECT query
+        FROM watch_queries
+        WHERE id = ?
+        """,
+        (
+            query_id,
+        ),
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    query = str(
+        row["query"]
+    )
+
+    connection.execute(
+        """
+        DELETE FROM watch_queries
+        WHERE id = ?
+        """,
+        (
+            query_id,
+        ),
+    )
+
+    return query
+
 def list_watch_queries(
     connection: sqlite3.Connection,
 ) -> list[str]:
