@@ -20,6 +20,8 @@ from paper_watcher.storage.sqlite import (
     database_connection,
     initialize_database,
     insert_papers,
+    add_watch_query,
+    list_watch_queries,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,18 @@ def _positive_int(value: str) -> int:
 
     return number
 
+def _non_empty_text(
+    value: str,
+) -> str:
+    cleaned = value.strip()
+
+    if not cleaned:
+        raise argparse.ArgumentTypeError(
+            "must not be empty"
+        )
+
+    return cleaned
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paper-watcher",
@@ -99,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--query",
-        required=True,
+        type=_non_empty_text,
         help="Scientific search query.",
     )
 
@@ -117,6 +131,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+    )
+
+    subparsers = parser.add_subparsers(
+        dest="command",
+    )
+
+    add_query_parser = subparsers.add_parser(
+        "add-query",
+        help="Store a query to watch.",
+    )
+
+    add_query_parser.add_argument(
+        "watch_query",
+        type=_non_empty_text,
+        help="Scientific query to store.",
+    )
+
+    subparsers.add_parser(
+        "list-queries",
+        help="List stored watch queries.",
     )
 
     return parser
@@ -246,6 +280,62 @@ def run(
     print(f"Request timeout: "
           f"{config.request_timeout} seconds")
 
+def add_query_command(
+    query: str,
+) -> None:
+    config = load_config()
+
+    initialize_database(
+        config.database_path
+    )
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+        query_id = add_watch_query(
+            connection,
+            query,
+        )
+
+    if query_id is None:
+        print(
+            f"Query already exists: {query}"
+        )
+        return
+
+    print(
+        f"Query added: {query}"
+    )
+
+def list_queries_command() -> None:
+    config = load_config()
+
+    initialize_database(
+        config.database_path
+    )
+
+    with database_connection(
+        config.database_path
+    ) as connection:
+        queries = list_watch_queries(
+            connection
+        )
+
+    if not queries:
+        print("No stored queries.")
+        return
+
+    print("Stored queries:")
+    print()
+
+    for index, query in enumerate(
+        queries,
+        start=1,
+    ):
+        print(
+            f"{index}. {query}"
+        )
+
 def main(
     argv: list[str] | None = None,
 ) -> int:
@@ -255,6 +345,22 @@ def main(
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "add-query":
+            add_query_command(
+                args.watch_query
+            )
+            return 0
+
+        if args.command == "list-queries":
+            list_queries_command()
+            return 0
+
+        if args.query is None:
+            parser.error(
+                "--query is required unless using "
+                "add-query or list-queries"
+            )
+
         run(
             query=args.query,
             max_results=args.max_results,

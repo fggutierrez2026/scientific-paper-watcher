@@ -27,6 +27,22 @@ CREATE TABLE IF NOT EXISTS papers (
 );
 """
 
+WATCH_QUERIES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS watch_queries (
+    id INTEGER PRIMARY KEY,
+    query TEXT NOT NULL
+);
+"""
+
+WATCH_QUERIES_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_watch_queries_query
+ON watch_queries (
+    query
+);
+"""
+
+
 # A paper is uniquely identified inside a source by
 # (source, external_id).
 #
@@ -85,12 +101,21 @@ def initialize_database(
     with database_connection(
         database_path
     ) as connection:
+
         connection.execute(
             PAPERS_SCHEMA
         )
 
         connection.execute(
             PAPERS_UNIQUE_INDEX
+        )
+
+        connection.execute(
+            WATCH_QUERIES_SCHEMA
+        )
+
+        connection.execute(
+            WATCH_QUERIES_UNIQUE_INDEX
         )
 
 def insert_paper(
@@ -211,3 +236,59 @@ def get_paper_by_id(
 
     return _row_to_paper(row)
 
+def add_watch_query(
+    connection: sqlite3.Connection,
+    query: str,
+) -> int | None:
+    cleaned_query = query.strip()
+
+    if not cleaned_query:
+        raise ValueError(
+            "Watch query cannot be empty"
+        )
+
+    cursor = connection.execute(
+        """
+        INSERT OR IGNORE INTO watch_queries (
+            query
+        )
+        VALUES (?)
+        """,
+        (
+            cleaned_query,
+        ),
+    )
+
+    if cursor.rowcount == 0:
+        return None
+
+    return cursor.lastrowid
+
+def list_watch_queries(
+    connection: sqlite3.Connection,
+) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT query
+        FROM watch_queries
+        ORDER BY id
+        """
+    ).fetchall()
+
+    return [
+        row["query"]
+        for row in rows
+    ]
+
+def list_watch_query_rows(
+    connection: sqlite3.Connection,
+) -> list[sqlite3.Row]:
+    return connection.execute(
+        """
+        SELECT
+            id,
+            query
+        FROM watch_queries
+        ORDER BY id
+        """
+    ).fetchall()
