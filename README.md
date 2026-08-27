@@ -1,83 +1,108 @@
 # Scientific Paper Watcher
 
-A command-line scientific literature watcher for monitoring **PubMed** and **arXiv**, storing results in **SQLite**, detecting papers seen for the first time, and generating **Markdown reports**.
+Scientific Paper Watcher is a Python command-line application for monitoring scientific literature from **PubMed** and **arXiv**.
 
-Scientific Paper Watcher is designed as a small, transparent, local-first project that can later be run automatically as a scheduled service.
+It can search scientific papers, normalize results into a common model, store them in SQLite, detect new and known papers, preserve query-to-paper provenance, manage persistent watch queries, execute batch searches, and generate Markdown reports.
 
-Current version:
+**Current version: `0.3.0`**
+
+---
+
+## Main features
+
+### Scientific sources
+
+- PubMed
+- arXiv
+
+Results from both sources are normalized into a common `Paper` model before being stored.
+
+### Persistent storage
+
+- SQLite database.
+- Automatic database initialization.
+- Persistent papers across runs.
+- Persistent watch queries.
+- Query-to-paper provenance.
+- Duplicate protection.
+
+### Query management
+
+The CLI supports:
 
 ```text
-0.2.0
+add-query
+list-queries
+remove-query
 ```
 
+Stored queries use their real SQLite IDs.
+
+Removing an active query does **not** delete its historical query-to-paper provenance.
+
+### Compound queries
+
+Scientific Paper Watcher includes a small common query language supporting:
+
+```text
+AND
+OR
+NOT
++
+(...)
+"..."
+```
+
+`+` is treated as an alias for `AND`.
+
+Example:
+
+```text
+"GBP protein" + "biological sensor"
+```
+
+is normalized to:
+
+```text
+"GBP protein" AND "biological sensor"
+```
+
+The normalized query is then translated independently for PubMed and arXiv.
+
+### Reports
+
+- Per-query Markdown reports.
+- Global report with all stored papers.
+- Query provenance.
+- Source warnings.
+- Legacy handling for papers that predate provenance tracking.
+
+### Reliability
+
+- Logging.
+- Explicit application exceptions.
+- HTTP timeouts.
+- Retry logic.
+- Exponential backoff.
+- `Retry-After` support where applicable.
+- Graceful degradation if one source fails.
+- Batch isolation between stored queries.
+- arXiv request throttling.
+- SQLite uniqueness constraints.
+
 ---
 
-## Features
-
-- Search scientific literature in:
-  - PubMed
-  - arXiv
-- Normalize results from different sources into a common `Paper` model.
-- Store retrieved papers in SQLite.
-- Prevent duplicate insertion using `(source, external_id)` identity.
-- Normalize DOI values for comparison and storage.
-- Persist scientific queries in SQLite.
-- Run one ad hoc query from the CLI.
-- Run all stored watch queries as a batch.
-- Detect papers seen for the first time by the local database.
-- Generate one Markdown report per query.
-- Record source warnings in reports.
-- Continue when one source is temporarily unavailable.
-- Continue a batch when one stored query fails completely.
-- Retry transient HTTP and rate-limit failures with exponential backoff.
-- Respect arXiv request-rate constraints.
-- Provide structured logging for searches, retries, failures, storage, and reports.
-
----
-
-## Project status
-
-### v0.1.0
-
-Initial API consumer:
-
-- PubMed integration
-- arXiv integration
-- common `Paper` model
-- XML / Atom parsing
-- logging
-- custom exceptions
-- retries and exponential backoff
-- initial CLI
-
-### v0.2.0
-
-Persistence and watcher workflow:
-
-- SQLite paper storage
-- deduplication
-- persistent watch queries
-- Markdown reports
-- detection of newly discovered papers
-- source-level graceful degradation
-- `run` CLI subcommand
-- batch execution of stored queries
-
----
+# Installation
 
 ## Requirements
 
-Recommended environment:
+Recommended:
 
-- Python 3.12+
-- Linux, macOS, or another environment capable of running Python
-- Internet connection for PubMed and arXiv queries
-
-The project uses a Python virtual environment during development.
-
----
-
-## Installation
+```text
+Python 3.12+
+Git
+Linux/macOS
+```
 
 Clone the repository:
 
@@ -90,12 +115,13 @@ Create a virtual environment:
 
 ```bash
 python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-Activate it:
+Upgrade pip:
 
 ```bash
-source .venv/bin/activate
+python -m pip install --upgrade pip
 ```
 
 Install the project in editable mode:
@@ -104,137 +130,251 @@ Install the project in editable mode:
 pip install -e .
 ```
 
-Verify the installation:
+Check the installation:
 
 ```bash
 paper-watcher --version
 ```
 
-Expected output:
+Expected:
 
 ```text
-paper-watcher 0.2.0
+paper-watcher 0.3.0
 ```
 
 ---
 
-## Configuration
+# Configuration
 
-Scientific Paper Watcher reads its configuration from environment variables and/or a local `.env` file.
+The application loads configuration from environment variables.
 
-Create a `.env` file in the project root.
+A local `.env` file can be used during development.
 
 Example:
 
 ```env
-PUBMED_EMAIL=your_email@example.com
+PUBMED_EMAIL=your-email@example.com
 PUBMED_TOOL=scientific-paper-watcher
-
-PAPER_WATCHER_DB=data/papers.db
-PAPER_WATCHER_REPORT_DIR=reports
-
 REQUEST_TIMEOUT=15
+DATABASE_PATH=data/papers.db
+REPORT_DIR=reports
 ```
 
-Do not commit private or machine-specific environment configuration.
+Do not commit secrets or personal configuration.
 
-The `.env` file should remain ignored by Git.
+Recommended `.gitignore` entries:
+
+```text
+.env
+.venv/
+__pycache__/
+*.pyc
+data/*.db
+reports/*.md
+```
 
 ---
 
-## Command-line interface
+# Command-line interface
 
-The CLI follows the pattern:
-
-```text
-paper-watcher COMMAND [OPTIONS]
-```
-
-Available commands:
-
-```text
-run
-add-query
-list-queries
-```
-
-View the global help:
+Show help:
 
 ```bash
 paper-watcher --help
 ```
 
-View help for `run`:
+Current commands:
+
+```text
+run
+add-query
+list-queries
+remove-query
+report-all
+```
+
+Show version:
 
 ```bash
-paper-watcher run --help
+paper-watcher --version
 ```
 
 ---
 
-## Run one query
+# Run a single query
 
-To execute one ad hoc scientific query:
-
-```bash
-paper-watcher run \
-    --query "protein language models" \
-    --max-results 5
-```
-
-`--max-results` defines the maximum number of papers requested from **each source**.
-
-For example:
+Example:
 
 ```bash
 paper-watcher run \
     --query "protein design" \
-    --max-results 2
+    --max-results 5
 ```
 
-may retrieve up to:
+The watcher queries PubMed and arXiv independently.
+
+The high-level flow is:
 
 ```text
-2 PubMed papers
-+
-2 arXiv papers
+query
+  |
+  v
+query validation
+  |
+  v
+normalization
+  |
+  +-----------------------+
+  |                       |
+  v                       v
+PubMed translation     arXiv translation
+  |                       |
+  v                       v
+PubMed                 arXiv
+  |                       |
+  +-----------+-----------+
+              |
+              v
+            Paper
+              |
+              v
+            SQLite
+              |
+              +--> provenance
+              |
+              +--> Markdown report
 ```
-
-depending on source availability and returned results.
-
-When `--query` is present, only that query is executed.
 
 ---
 
-## Add a persistent watch query
+# Compound queries
 
-Store a query in SQLite:
+## Boolean operators
+
+Supported operators:
+
+```text
+AND
+OR
+NOT
+```
+
+Example:
+
+```bash
+paper-watcher run \
+    --query '("protein design" OR "protein engineering") AND biosensor' \
+    --max-results 5
+```
+
+## Quoted phrases
+
+Use quotes when a concept should be treated as a phrase:
+
+```text
+"protein language models"
+```
+
+## Parentheses
+
+Use parentheses to group concepts:
+
+```text
+("glucose binding protein" OR GGBP)
+AND
+(biosensor OR "biological sensor")
+```
+
+Example:
+
+```bash
+paper-watcher run \
+    --query '("glucose binding protein" OR GGBP) AND (biosensor OR "biological sensor")' \
+    --max-results 5
+```
+
+## `+` alias
+
+`+` is accepted as a convenience alias for `AND`.
+
+Example:
+
+```bash
+paper-watcher run \
+    --query '"GBP protein" + "biological sensor"' \
+    --max-results 5
+```
+
+Normalized representation:
+
+```text
+"GBP protein" AND "biological sensor"
+```
+
+---
+
+# Query translation
+
+Scientific Paper Watcher stores a **common query representation** and translates it at runtime for each scientific source.
+
+This separates:
+
+```text
+user intent
+```
+
+from:
+
+```text
+API-specific syntax
+```
+
+Example common query:
+
+```text
+("glucose binding protein" OR GGBP)
+AND
+(biosensor OR "biological sensor")
+```
+
+PubMed representation:
+
+```text
+("glucose binding protein" OR GGBP)
+AND
+(biosensor OR "biological sensor")
+```
+
+arXiv representation:
+
+```text
+(
+    all:"glucose binding protein"
+    OR
+    all:GGBP
+)
+AND
+(
+    all:biosensor
+    OR
+    all:"biological sensor"
+)
+```
+
+Source-specific arXiv syntax such as `all:` is not stored in SQLite provenance.
+
+---
+
+# Persistent watch queries
+
+Add a query:
 
 ```bash
 paper-watcher add-query \
     "protein design"
 ```
 
-Another example:
-
-```bash
-paper-watcher add-query \
-    "molecular dynamics"
-```
-
-Duplicate query insertion is ignored.
-
-Example:
-
-```text
-Query already exists: protein design
-```
-
-Empty queries are rejected by the CLI.
-
----
-
-## List stored queries
+List stored queries:
 
 ```bash
 paper-watcher list-queries
@@ -245,524 +385,306 @@ Example:
 ```text
 Stored queries:
 
-1. protein design
-2. molecular dynamics
-3. protein language models
-4. computational protein design
+ID    Query
+--    ----------------------------------------
+1     protein design
+2     molecular dynamics
+4     computational protein design
+5     protein language models
 ```
 
-These queries are stored in SQLite and persist across program executions.
+Remove a stored query:
 
----
+```bash
+paper-watcher remove-query 5
+```
 
-## Run all stored queries
+Historical provenance remains preserved.
 
-Run the watcher without providing `--query`:
+Run all stored queries:
 
 ```bash
 paper-watcher run \
     --max-results 5
 ```
 
-Scientific Paper Watcher loads all stored watch queries from SQLite and executes them one by one.
-
-Conceptually:
-
-```text
-SQLite watch_queries
-        |
-        v
-paper-watcher run
-        |
-        +--> query 1
-        |
-        +--> query 2
-        |
-        +--> query 3
-        |
-        v
-BATCH SUMMARY
-```
-
-Example summary:
-
-```text
-======================================================================
-BATCH SUMMARY
-======================================================================
-Queries processed: 4
-Queries successful: 4
-Queries failed: 0
-```
-
-If no queries have been stored:
-
-```text
-No stored queries.
-```
-
 ---
 
-## What does "new paper" mean?
+# SQLite database
 
-Scientific Paper Watcher uses **local discovery state**, not publication date alone.
-
-A paper is considered **new** when it is successfully retrieved and has **not previously been stored in the local SQLite database**.
-
-Therefore:
-
-```text
-new paper
-```
-
-means:
-
-```text
-first time seen by this local Scientific Paper Watcher database
-```
-
-It does **not** necessarily mean:
-
-```text
-published today
-```
-
-or:
-
-```text
-published recently
-```
-
-A paper published weeks or months ago can still be reported as new if the local watcher has never seen it before.
-
----
-
-## Deduplication
-
-The primary paper identity is:
-
-```text
-(source, external_id)
-```
-
-Examples:
-
-```text
-(pubmed, 42420197)
-(arxiv, 2608.18597v1)
-```
-
-SQLite enforces this identity through a unique index.
-
-Paper insertion uses:
-
-```sql
-INSERT OR IGNORE
-```
-
-so repeated searches do not duplicate already known papers.
-
-The storage workflow distinguishes:
-
-```text
-Papers retrieved
-New papers
-Known papers
-Total papers stored
-```
-
-For example:
-
-```text
-Papers retrieved: 2
-New papers: 0
-Known papers: 2
-Total papers stored: 14
-```
-
----
-
-## DOI normalization
-
-DOIs are normalized before storage/comparison.
-
-Equivalent forms such as:
-
-```text
-10.1000/ABC
-doi:10.1000/ABC
-https://doi.org/10.1000/ABC
-```
-
-are normalized toward:
-
-```text
-10.1000/abc
-```
-
-A normalized DOI is treated as a strong cross-source signal, but it is not currently used as the database primary identity.
-
----
-
-## Reports
-
-Scientific Paper Watcher writes Markdown reports to the configured report directory.
-
-Default example:
-
-```text
-reports/
-```
-
-A generated filename follows the pattern:
-
-```text
-<query-slug>_YYYY-MM-DD_HHMMSS.md
-```
-
-For example:
-
-```text
-reports/protein-language-models_2026-08-26_143815.md
-```
-
-Each report contains:
-
-```text
-query
-generation time
-number of new papers
-source warnings, if any
-paper metadata
-authors
-abstract
-DOI
-URL
-```
-
----
-
-## Example report
-
-```markdown
-# Scientific Paper Watcher Report
-
-**Query:** protein language models
-
-**Generated:** 2026-08-26 14:38:15
-
-**New papers:** 1
-
-## Example paper title
-
-**Source:** ARXIV
-
-**External ID:** 2608.18597v1
-
-**Published:** 2026-08-19
-
-**Authors:** Example Author, Another Author
-
-**URL:** https://...
-
-Paper abstract...
-```
-
-If no newly discovered papers are found:
-
-```markdown
-**New papers:** 0
-
-_No new papers found._
-```
-
----
-
-## Source warnings
-
-PubMed and arXiv are handled independently.
-
-If one source fails and the other succeeds, the query continues.
-
-For example:
-
-```text
-PubMed: success
-arXiv: failure
-```
-
-is still treated as a usable query execution.
-
-The warning is recorded in the generated Markdown report:
-
-```markdown
-## Source warnings
-
-- arXiv unavailable: ...
-```
-
-When warnings exist and no new papers were found among successful sources, the report states:
-
-```markdown
-_No new papers found among sources that completed successfully._
-```
-
----
-
-## Failure model
-
-Scientific Paper Watcher contains two levels of fault isolation.
-
-### Source-level isolation
-
-Inside one query:
-
-```text
-query
- |
- +--> PubMed
- |
- +--> arXiv
-```
-
-If one source fails:
-
-```text
-PubMed OK
-arXiv FAIL
-```
-
-the query can still complete.
-
-A query fails completely only when all configured sources fail.
-
-### Query-level isolation
-
-During batch mode:
-
-```text
-query 1 -> success
-query 2 -> complete failure
-query 3 -> success
-query 4 -> success
-```
-
-a failed query does not prevent later stored queries from running.
-
-The batch records the failure and continues.
-
----
-
-## Retries and backoff
-
-Transient source failures are retried.
-
-Examples include:
-
-- request timeouts
-- rate limiting
-- retryable HTTP failures
-
-The retry schedule uses exponential backoff.
-
-An example sequence is:
-
-```text
-3 seconds
-6 seconds
-12 seconds
-```
-
-Expected permanent or non-retryable errors are not retried indefinitely.
-
----
-
-## arXiv rate limiting
-
-Scientific Paper Watcher applies local request spacing before arXiv API calls.
-
-Example log:
-
-```text
-Waiting 0.88 seconds to respect arXiv rate limit
-```
-
-The wait reflects the remaining time required to satisfy the configured interval rather than always sleeping a complete fixed duration.
-
----
-
-## Logging
-
-The application emits structured logs for important operations.
-
-Example:
-
-```text
-INFO    Searching PubMed for query='protein design' max_results=1
-INFO    PubMed search completed: total_count=... returned=1
-INFO    Searching arXiv for query='protein design' max_results=1
-WARNING arXiv unavailable: ...
-```
-
-Logging is used for:
-
-- API searches
-- parsing
-- retries
-- timeouts
-- rate limits
-- source failures
-- batch failures
-
----
-
-## Database
-
-Default database:
+Default location:
 
 ```text
 data/papers.db
 ```
 
-The database currently contains two main tables:
+Core tables:
 
 ```text
 papers
 watch_queries
+paper_query_matches
 ```
 
-### `papers`
+## `papers`
 
-Stores normalized paper data.
-
-Conceptual fields:
+A paper is uniquely identified inside a source by:
 
 ```text
-id
-source
-external_id
-doi
-title
-abstract
-authors
-published
-url
-created_at
+(source, external_id)
 ```
 
-### `watch_queries`
+## `watch_queries`
 
-Stores persistent scientific search queries.
+Stores active queries used in future batch runs.
 
-Conceptual fields:
+Represents:
 
 ```text
-id
-query
+current configuration
+```
+
+## `paper_query_matches`
+
+Stores query-to-paper provenance.
+
+Represents:
+
+```text
+historical provenance
+```
+
+Simplified schema:
+
+```sql
+CREATE TABLE paper_query_matches (
+    paper_id INTEGER NOT NULL,
+    query TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL
+        DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (paper_id, query),
+
+    FOREIGN KEY (paper_id)
+        REFERENCES papers(id)
+        ON DELETE CASCADE
+);
 ```
 
 ---
 
-## Data flow
+# Provenance
 
-A single query follows approximately:
+Provenance answers:
 
 ```text
-query
- |
- +------------------+
- |                  |
- v                  v
-PubMed            arXiv
- |                  |
- v                  v
-Paper[]           Paper[]
- |                  |
- +--------+---------+
-          |
-          v
-      all_papers
-          |
-          v
-       SQLite
-          |
-      +---+---+
-      |       |
-      v       v
-     NEW     KNOWN
-      |
-      v
-Markdown report
+Which query found this paper?
 ```
 
-Batch execution adds an outer loop:
+Example:
 
 ```text
-watch_queries
-     |
-     v
-for query
-     |
-     v
-run(query)
+Paper A
+  |
+  +--> protein design
+  |
+  +--> computational protein design
+```
+
+A paper exists only once in `papers`, but can have multiple rows in `paper_query_matches`.
+
+This is a many-to-many relationship:
+
+```text
+queries N <----> N papers
 ```
 
 ---
 
-## Project structure
+# Global report
 
-The project is organized approximately as:
+Generate a global Markdown report:
+
+```bash
+paper-watcher report-all
+```
+
+Output:
+
+```text
+reports/all-papers_YYYY-MM-DD_HHMMSS.md
+```
+
+Columns:
+
+```text
+Query
+Title
+Authors
+Source
+URL
+```
+
+A paper may appear more than once if multiple queries matched it.
+
+---
+
+# Legacy papers
+
+Papers inserted before provenance tracking was implemented may not have a historical query association.
+
+These are shown as:
+
+```text
+legacy / unknown
+```
+
+The application does not invent historical provenance.
+
+---
+
+# Source failure handling
+
+PubMed and arXiv are executed independently.
+
+If one source fails and the other succeeds, the watcher continues with the successful source.
+
+Only if all configured sources fail does the watcher raise a fatal application error.
+
+---
+
+# Retry and backoff
+
+Transient failures are retried using exponential backoff.
+
+The retry implementation can honor `Retry-After` when returned by a service.
+
+---
+
+# arXiv rate limiting
+
+The arXiv source includes local throttling between API requests.
+
+The limiter prevents rapid consecutive calls.
+
+---
+
+# Logging
+
+The application uses Python logging for operational diagnostics.
+
+Example:
+
+```text
+INFO    paper_watcher.sources.pubmed: Searching PubMed...
+INFO    paper_watcher.sources.arxiv: Requesting arXiv API
+WARNING paper_watcher.main: arXiv unavailable...
+```
+
+---
+
+# Error model
+
+Expected application failures inherit from:
+
+```text
+PaperWatcherError
+```
+
+Compound-query syntax errors use:
+
+```text
+QuerySyntaxError
+```
+
+Malformed queries therefore fail cleanly without exposing implementation tracebacks.
+
+---
+
+# Project structure
 
 ```text
 scientific-paper-watcher/
 |
-+-- src/
-|   |
-|   +-- paper_watcher/
-|       |
-|       +-- __init__.py
-|       +-- __main__.py
-|       +-- main.py
-|       +-- config.py
-|       +-- exceptions.py
-|       +-- logging_config.py
-|       +-- models.py
-|       +-- normalization.py
-|       |
-|       +-- sources/
-|       |   +-- pubmed.py
-|       |   +-- arxiv.py
-|       |
-|       +-- storage/
-|       |   +-- sqlite.py
-|       |
-|       +-- reports/
-|           +-- markdown.py
++-- pyproject.toml
++-- README.md
++-- LICENSE
++-- .gitignore
 |
 +-- data/
 |   +-- papers.db
 |
 +-- reports/
+|   +-- *.md
 |
-+-- .env
-+-- .gitignore
-+-- LICENSE
-+-- pyproject.toml
-+-- README.md
++-- src/
+    +-- paper_watcher/
+        |
+        +-- __init__.py
+        +-- __main__.py
+        +-- main.py
+        +-- config.py
+        +-- exceptions.py
+        +-- logging_config.py
+        +-- models.py
+        +-- normalization.py
+        +-- query_language.py
+        |
+        +-- reports/
+        |   +-- __init__.py
+        |   +-- markdown.py
+        |
+        +-- sources/
+        |   +-- __init__.py
+        |   +-- pubmed.py
+        |   +-- arxiv.py
+        |
+        +-- storage/
+            +-- __init__.py
+            +-- sqlite.py
 ```
-
-Generated database and report files should generally remain outside version control.
 
 ---
 
-## Development checks
+# Architecture
 
-Compile one module:
-
-```bash
-python -m py_compile \
-    src/paper_watcher/main.py
+```text
+                             CLI
+                              |
+              +---------------+----------------+
+              |               |                |
+              v               v                v
+             run           queries         report-all
+              |               |                |
+              |         add/list/remove         |
+              |               |                |
+              v               v                |
+       query_language      SQLite              |
+              |               |                |
+         +----+----+          |                |
+         |         |          |                |
+         v         v          |                |
+       PubMed     arXiv       |                |
+         |         |          |                |
+         +----+----+          |                |
+              |               |                |
+              v               |                |
+            Paper             |                |
+              |               |                |
+         +----+---------------+----+           |
+         |                         |           |
+         v                         v           |
+       papers             paper_query_matches |
+         |                         |           |
+         +------------+------------+-----------+
+                      |
+                      v
+                   reports
 ```
+
+---
+
+# Development checks
 
 Compile the full package:
 
@@ -771,213 +693,184 @@ python -m compileall -q \
     src/paper_watcher
 ```
 
-Check the exit status:
+Check the exit code:
 
 ```bash
 echo $?
 ```
 
-Expected result:
+Expected:
 
 ```text
 0
 ```
 
----
-
-## Useful CLI regression checks
-
-Global help:
-
-```bash
-paper-watcher --help
-```
-
-Run help:
-
-```bash
-paper-watcher run --help
-```
-
-Version:
-
-```bash
-paper-watcher --version
-```
-
-List queries:
-
-```bash
-paper-watcher list-queries
-```
-
-Run one query:
-
-```bash
-paper-watcher run \
-    --query "protein language models" \
-    --max-results 1
-```
-
-Run all queries:
-
-```bash
-paper-watcher run \
-    --max-results 1
-```
-
-Running without a command:
-
-```bash
-paper-watcher
-```
-
-should produce an `argparse` usage error because a subcommand is required.
-
----
-
-## Git workflow
-
-Inspect repository status:
+Before committing:
 
 ```bash
 git status
-```
-
-Inspect changes:
-
-```bash
 git diff
-```
-
-Stage selected changes:
-
-```bash
-git add \
-    README.md \
-    src/paper_watcher/__init__.py
-```
-
-Review staged changes:
-
-```bash
-git diff --staged
-```
-
-Commit:
-
-```bash
-git commit -m \
-    "release: prepare v0.2.0"
-```
-
-Push:
-
-```bash
-git push
+git diff --check
 ```
 
 ---
 
-## Release `v0.2.0`
+# Release history
 
-After final acceptance checks and a clean working tree:
+## v0.1.0
 
-```bash
-git tag -a v0.2.0 \
-    -m "Scientific Paper Watcher v0.2.0"
-```
+Initial multi-source API consumer.
 
-Push the tag:
+Highlights:
 
-```bash
-git push origin v0.2.0
-```
+- PubMed integration.
+- arXiv integration.
+- normalized `Paper` model.
+- logging.
+- retries and exponential backoff.
+- CLI package installation.
 
-Verify:
+## v0.2.0
 
-```bash
-git tag --list
-```
+Persistent literature watcher.
+
+Highlights:
+
+- SQLite persistence.
+- paper deduplication.
+- persistent watch queries.
+- Markdown reports.
+- new-vs-known detection.
+- graceful source failure handling.
+- batch query execution.
+
+## v0.3.0
+
+Query-aware literature watcher.
+
+Highlights:
+
+- query-to-paper provenance;
+- `paper_query_matches`;
+- many-to-many query/paper model;
+- global `report-all`;
+- `legacy / unknown`;
+- real SQLite IDs in `list-queries`;
+- `remove-query ID`;
+- removal without deleting provenance;
+- compound query language;
+- `AND`, `OR`, `NOT`;
+- `+` alias for `AND`;
+- quoted phrases;
+- parentheses;
+- syntax validation;
+- PubMed query translation;
+- arXiv query translation;
+- canonical query persistence.
 
 ---
 
-## Current limitations
+# Design principles
 
-The current project deliberately remains small and understandable.
-
-Not yet implemented:
-
-- automatic scheduling with systemd
-- e-mail or messaging notifications
-- web UI
-- full-text retrieval
-- citation graph analysis
-- DOI-based cross-source merging
-- semantic similarity deduplication
-- automated test suite with broad coverage
-- CI release pipeline
-- LLM summarization
-
-These are potential future improvements rather than requirements for `v0.2.0`.
+- Preserve user intent.
+- Keep source adapters isolated.
+- Preserve historical provenance.
+- Prefer deterministic paper identity.
+- Degrade gracefully when one source fails.
+- Avoid silent data loss.
+- Normalize common queries before persistence.
 
 ---
 
-## Roadmap
+# Current limitations
 
-### Next milestone
+Scientific Paper Watcher currently does not:
 
-Run Scientific Paper Watcher automatically as a Linux service.
+- automatically merge PubMed and arXiv records by DOI;
+- perform fuzzy cross-source paper merging;
+- support portable source-specific field expressions;
+- provide a GUI or web interface;
+- run automatically as a Linux service;
+- send notifications;
+- summarize papers with an LLM;
+- use a formal migration framework such as Alembic.
 
-Potential next topics:
+---
+
+# Roadmap
+
+Possible future work:
 
 ```text
 systemd service
 systemd timer
 automatic restart
-logs with journalctl
-scheduled watcher execution
-```
-
-Future project improvements may include:
-
-```text
+journalctl-based operations
+scheduled literature monitoring
+CSV/TSV export
+statistics by query
+papers shared across queries
+date-based reporting
+query editing
+field-aware common queries
+cross-source DOI analysis
 automated tests
-GitHub Actions
+CI with GitHub Actions
 notifications
-additional literature sources
-better query management
-report formats beyond Markdown
-semantic analysis
+local-LLM summarization
 ```
 
 ---
 
-## Design principles
+# Example workflow
 
-Scientific Paper Watcher currently follows several principles that are useful beyond this project:
+Add queries:
 
-1. **Normalize external data early.**
-2. **Keep storage identity explicit.**
-3. **Persist state locally.**
-4. **Separate CLI parsing from command handlers.**
-5. **Isolate failures at the smallest useful level.**
-6. **Make batch execution resilient.**
-7. **Record operational warnings instead of silently hiding them.**
-8. **Generate human-readable artifacts.**
-9. **Prefer simple, inspectable components before adding complexity.**
-10. **Treat a release as something that must be tested, documented, and reproducible.**
+```bash
+paper-watcher add-query \
+    "protein design"
+
+paper-watcher add-query \
+    "molecular dynamics"
+
+paper-watcher add-query \
+    '"protein language models"'
+
+paper-watcher add-query \
+    '("glucose binding protein" OR GGBP) AND (biosensor OR "biological sensor")'
+```
+
+List them:
+
+```bash
+paper-watcher list-queries
+```
+
+Run all stored queries:
+
+```bash
+paper-watcher run \
+    --max-results 5
+```
+
+Generate the global report:
+
+```bash
+paper-watcher report-all
+```
+
+Remove an obsolete query:
+
+```bash
+paper-watcher remove-query 2
+```
+
+Historical provenance remains available.
 
 ---
 
-## License
+# License
 
-This project is licensed under the MIT License.
+This project is distributed under the MIT License.
 
-See:
-
-```text
-LICENSE
-```
-
-for details.
+See `LICENSE` for details.
