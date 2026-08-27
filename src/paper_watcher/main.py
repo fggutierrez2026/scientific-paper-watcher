@@ -10,6 +10,12 @@ from paper_watcher.sources.pubmed import (
     search_pubmed,
 )
 
+from paper_watcher.query_language import (
+    normalize_common_query,
+    to_arxiv_query,
+    to_pubmed_query,
+)
+
 from paper_watcher.sources.arxiv import search_arxiv
 
 import logging
@@ -213,6 +219,18 @@ def run(
 
     config = load_config()
 
+    common_query = normalize_common_query(
+        query
+    )
+
+    pubmed_query = to_pubmed_query(
+        common_query
+    )
+
+    arxiv_query = to_arxiv_query(
+        common_query
+    )
+
     pubmed_papers: list[Paper] = []
     arxiv_papers: list[Paper] = []
 
@@ -225,6 +243,23 @@ def run(
     )
 
     ensure_directories()
+
+    print()
+    print("=" * 70)
+    print("QUERY")
+    print("=" * 70)
+
+    print(
+        f"Common : {common_query}"
+    )
+
+    print(
+        f"PubMed : {pubmed_query}"
+    )
+
+    print(
+        f"arXiv  : {arxiv_query}"
+    )
 
     print()
     print("=" * 70)
@@ -242,7 +277,7 @@ def run(
         # pubmed_papers
 
         pubmed_result = search_pubmed(
-            query,
+            pubmed_query,
             max_results=max_results,
         )
 
@@ -286,7 +321,7 @@ def run(
 
     try:
         arxiv_result = search_arxiv(
-            query=query,
+            query=arxiv_query,
             max_results=max_results,
         )
 
@@ -368,7 +403,7 @@ def run(
         insert_result = insert_papers(
             connection,
             all_papers,
-            query=query,
+            query=common_query,
         )
 
         total_stored = count_papers(
@@ -397,7 +432,7 @@ def run(
 
     report_path = write_markdown_report(
         report_dir=config.report_dir,
-        query=query,
+        query=common_query,
         papers=insert_result.new_papers,
         warnings=source_warnings,
     )
@@ -424,6 +459,12 @@ def add_query_command(
 ) -> None:
     config = load_config()
 
+    normalized_query = (
+        normalize_common_query(
+            query
+        )
+    )
+
     initialize_database(
         config.database_path
     )
@@ -433,17 +474,19 @@ def add_query_command(
     ) as connection:
         query_id = add_watch_query(
             connection,
-            query,
+            normalized_query,
         )
 
     if query_id is None:
         print(
-            f"Query already exists: {query}"
+            "Query already exists: "
+            f"{normalized_query}"
         )
         return
 
     print(
-        f"Query added: {query}"
+        "Query added: "
+        f"{normalized_query}"
     )
 
 def list_queries_command() -> None:
