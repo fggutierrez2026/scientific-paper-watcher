@@ -5,10 +5,10 @@ from datetime import datetime
 from pathlib import Path
 
 from paper_watcher.models import Paper
-
 from paper_watcher.storage.sqlite import (
     PaperReportRow,
 )
+
 
 def slugify_query(
     query: str,

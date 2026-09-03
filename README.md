@@ -153,16 +153,12 @@ A local `.env` file can be used during development.
 Example:
 
 ```env
-PUBMED_EMAIL=your-email@example.com
-PUBMED_TOOL=scientific-paper-watcher
-REQUEST_TIMEOUT=15
-DATABASE_PATH=data/papers.db
-REPORT_DIR=reports
-```
+# Database and output paths
+PAPER_WATCHER_DB=data/papers.db
 
+# NCBI E-utilities (PubMed)
+NCBI_EMAIL=your-email@example.com
 Do not commit secrets or personal configuration.
-
-Recommended `.gitignore` entries:
 
 ```text
 .env

@@ -1,44 +1,36 @@
 import argparse
+import logging
+
 from paper_watcher import __version__
 from paper_watcher.config import load_config
+from paper_watcher.exceptions import PaperWatcherError
 from paper_watcher.logging_config import setup_logging
-
 from paper_watcher.models import Paper
-
-from paper_watcher.sources.pubmed import (
-    fetch_pubmed_articles,
-    search_pubmed,
-)
-
 from paper_watcher.query_language import (
     normalize_common_query,
     to_arxiv_query,
     to_pubmed_query,
 )
-
+from paper_watcher.reports.markdown import (
+    write_all_papers_report,
+    write_markdown_report,
+)
 from paper_watcher.sources.arxiv import search_arxiv
-
-import logging
-
-from paper_watcher.exceptions import PaperWatcherError
-
+from paper_watcher.sources.pubmed import (
+    fetch_pubmed_articles,
+    search_pubmed,
+)
 from paper_watcher.storage.sqlite import (
+    add_watch_query,
     count_papers,
     database_connection,
+    get_all_paper_report_rows,
     initialize_database,
     insert_papers,
-    add_watch_query,
     list_watch_queries,
-    get_all_paper_report_rows,
     list_watch_query_rows,
     remove_watch_query,
 )
-
-from paper_watcher.reports.markdown import (
-    write_markdown_report,
-    write_all_papers_report,
-)
-
 
 logger = logging.getLogger(__name__)
 

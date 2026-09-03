@@ -6,6 +6,7 @@ from paper_watcher.exceptions import (
     PaperWatcherError,
 )
 
+
 class QuerySyntaxError(
     PaperWatcherError
 ):
@@ -292,12 +293,7 @@ def normalize_common_query(
                 f'"{value}"'
             )
 
-        elif token_type == "TERM":
-            parts.append(
-                value
-            )
-
-        elif token_type == "OP":
+        elif token_type == "TERM" or token_type == "OP":
             parts.append(
                 value
             )

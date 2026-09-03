@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
-
 import logging
-from dataclasses import dataclass
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import requests
 from tenacity import (
@@ -84,12 +83,12 @@ def _parse_retry_after(
 
     if retry_time.tzinfo is None:
         retry_time = retry_time.replace(
-            tzinfo=timezone.utc
+            tzinfo=UTC
         )
 
     delay = (
         retry_time
-        - datetime.now(timezone.utc)
+        - datetime.now(UTC)
     ).total_seconds()
 
     return max(0.0, delay)
@@ -254,7 +253,7 @@ def search_pubmed(query: str,
     """
     config = load_config()
 
-    params = {
+    params: dict[str, str | int] = {
         "db": "pubmed",
         "term": query,
         "retmode": "json",
@@ -263,6 +262,9 @@ def search_pubmed(query: str,
         "tool": TOOL_NAME,
         "email": config.ncbi_email,
     }
+
+    if config.ncbi_api_key:
+        params["api_key"] = config.ncbi_api_key
 
     logger.info(
         "Searching PubMed for query=%r max_results=%d",
@@ -323,7 +325,7 @@ def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
 
     config = load_config()
 
-    params = {
+    params: dict[str, str | int] = {
         "db": "pubmed",
         "id": ",".join(pmids),
         "retmode": "xml",
@@ -331,13 +333,13 @@ def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
         "email": config.ncbi_email,
     }
 
-    response = requests.get(
+    if config.ncbi_api_key:
+        params["api_key"] = config.ncbi_api_key
+
+    response = _get_pubmed(
         EFETCH_URL,
         params=params,
-        timeout=config.request_timeout,
     )
-
-    response.raise_for_status()
 
     papers = parse_pubmed_xml(response.content)
 
@@ -557,9 +559,10 @@ def _parse_publication_date(article: ET.Element) -> str | None:
     if not parts:
         return None
 
-    date_parts = [year]
+    if year:
+        return year.strip()
 
-    return "-".join(date_parts)
+    return parts[0]
 
 def _parse_pubmed_date(
     article: ET.Element,

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import logging
+import time
 import xml.etree.ElementTree as ET
-
 from dataclasses import dataclass
 
-import time
 import requests
+from tenacity import (
+    Retrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from paper_watcher.config import load_config
 from paper_watcher.exceptions import (
@@ -18,14 +24,6 @@ from paper_watcher.exceptions import (
     ServiceUnavailableError,
 )
 from paper_watcher.models import Paper
-
-from tenacity import (
-    Retrying,
-    before_sleep_log,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 ARXIV_RETRYABLE_EXCEPTIONS = (
     RequestTimeoutError,
@@ -356,8 +354,10 @@ def search_arxiv(
     query: str,
     max_results: int = 5,
 ) -> ArxivSearchResult:
-    params = {
-        "search_query": f'all:"{query}"',
+    cleaned_query = query.strip()
+
+    params: dict[str, str | int] = {
+        "search_query": cleaned_query,
         "start": 0,
         "max_results": max_results,
         "sortBy": "submittedDate",
@@ -366,7 +366,7 @@ def search_arxiv(
 
     logger.info(
         "Searching arXiv for query=%r max_results=%d",
-        query,
+        cleaned_query,
         max_results,
     )
 

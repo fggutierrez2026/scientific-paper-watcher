@@ -17,27 +17,40 @@ class Config:
     request_timeout: int
     max_retries: int
     ncbi_email: str
+    ncbi_api_key: str | None = None
 
 def load_config() -> Config:
-    database_path = PROJECT_ROOT / os.getenv(
-        "PAPER_WATCHER_DB",
-        "data/papers.pdb",
+    database_path = PROJECT_ROOT / (
+        os.getenv("PAPER_WATCHER_DB")
+        or os.getenv("DATABASE_PATH")
+        or "data/papers.db"
     )
 
-    report_dir = PROJECT_ROOT / os.getenv(
-        "PAPER_WATCHER_REPORT_DIR",
-        "reports",
+    report_dir = PROJECT_ROOT / (
+        os.getenv("PAPER_WATCHER_REPORT_DIR")
+        or os.getenv("REPORT_DIR")
+        or "reports"
     )
 
     request_timeout = int(
-        os.getenv("REQUEST_TIMEOUT", "15",)
+        os.getenv("REQUEST_TIMEOUT", "15")
     )
 
     max_retries = int(
-        os.getenv("MAX_RETRIES", "3",)
+        os.getenv("MAX_RETRIES", "3")
     )
 
-    ncbi_email = os.getenv("NCBI_EMAIL", "")
+    ncbi_email = (
+        os.getenv("NCBI_EMAIL")
+        or os.getenv("PUBMED_EMAIL")
+        or ""
+    )
+
+    ncbi_api_key = (
+        os.getenv("NCBI_API_KEY")
+        or os.getenv("PUBMED_API_KEY")
+        or None
+    )
 
     return Config(
         database_path=database_path,
@@ -45,4 +58,5 @@ def load_config() -> Config:
         request_timeout=request_timeout,
         max_retries=max_retries,
         ncbi_email=ncbi_email,
+        ncbi_api_key=ncbi_api_key,
     )

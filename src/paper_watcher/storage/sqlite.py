@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from paper_watcher.models import Paper
-
 from paper_watcher.normalization import (
     normalize_doi,
 )
