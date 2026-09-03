@@ -4,6 +4,7 @@ import pytest
 
 from paper_watcher.query_language import (
     QuerySyntaxError,
+    matches_query,
     normalize_common_query,
     to_arxiv_query,
     to_pubmed_query,
@@ -113,3 +114,25 @@ class TestQueryTranslation:
         query = 'crispr NOT "cas9"'
         translated = to_arxiv_query(query)
         assert translated == 'all:crispr ANDNOT all:"cas9"'
+
+
+class TestQueryMatching:
+    def test_simple_term_matching(self):
+        text = "A deep learning method for enzyme engineering."
+        assert matches_query("enzyme", text) is True
+        assert matches_query("antibody", text) is False
+
+    def test_multiword_phrase_matching(self):
+        text = "Engineered glucose binding protein sensors."
+        assert matches_query('"glucose binding protein"', text) is True
+        assert matches_query('"glucose protein"', text) is False
+
+    def test_compound_boolean_matching(self):
+        text = "Allosteric biosensor with engineered binding domain for continuous monitoring."
+        assert matches_query("biosensor AND domain", text) is True
+        assert matches_query("biosensor AND antibody", text) is False
+        assert matches_query("biosensor OR antibody", text) is True
+        assert matches_query("biosensor NOT antibody", text) is True
+        assert matches_query("biosensor NOT domain", text) is False
+        assert matches_query('(biosensor OR antibody) AND "binding domain"', text) is True
+        assert matches_query('(antibody OR crispr) AND domain', text) is False

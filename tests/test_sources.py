@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from paper_watcher.config import Config
-from paper_watcher.exceptions import InvalidResponseError, RateLimitError
+from paper_watcher.exceptions import InvalidResponseError
 from paper_watcher.sources.arxiv import (
     parse_arxiv_xml,
     search_arxiv,
+)
+from paper_watcher.sources.biorxiv import (
+    parse_biorxiv_json,
+    search_biorxiv,
 )
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
@@ -138,3 +142,78 @@ class TestArxivSource:
         call_params = mock_get_arxiv.call_args[0][0]
         assert call_params["search_query"] == complex_query
         assert call_params["max_results"] == 5
+
+
+class TestBiorxivSource:
+    @pytest.fixture
+    def sample_biorxiv_payload(self) -> dict:
+        return {
+            "messages": [{"status": "ok", "count": 2, "total_posts": 2}],
+            "collection": [
+                {
+                    "doi": "10.1101/2026.08.10.123456",
+                    "title": "Machine learning for allosteric biosensor engineering",
+                    "authors": "Alice Walker; Bob Dylan",
+                    "date": "2026-08-10",
+                    "version": "1",
+                    "type": "new results",
+                    "category": "bioengineering",
+                    "abstract": "We develop deep generative models for biosensing.",
+                    "server": "biorxiv",
+                },
+                {
+                    "doi": "10.1101/2026.08.11.654321",
+                    "title": "Photosynthetic Rates in Forest Canopies",
+                    "authors": "Charlie Green",
+                    "date": "2026-08-11",
+                    "version": "1",
+                    "type": "new results",
+                    "category": "ecology",
+                    "abstract": "Analysis of canopy carbon exchange.",
+                    "server": "biorxiv",
+                },
+            ],
+        }
+
+    def test_parse_biorxiv_json_unfiltered(self, sample_biorxiv_payload: dict):
+        papers = parse_biorxiv_json(sample_biorxiv_payload)
+        assert len(papers) == 2
+        p1 = papers[0]
+        assert p1.source == "biorxiv"
+        assert p1.doi == "10.1101/2026.08.10.123456"
+        assert p1.title == "Machine learning for allosteric biosensor engineering"
+        assert p1.authors == ["Alice Walker", "Bob Dylan"]
+        assert p1.journal == "bioengineering"
+        assert p1.publication_date == "2026-08-10"
+        assert p1.url == "https://doi.org/10.1101/2026.08.10.123456"
+
+    def test_parse_biorxiv_json_with_query_filter(self, sample_biorxiv_payload: dict):
+        papers = parse_biorxiv_json(sample_biorxiv_payload, query="biosensor AND learning")
+        assert len(papers) == 1
+        assert papers[0].doi == "10.1101/2026.08.10.123456"
+
+        # Query that matches none
+        empty = parse_biorxiv_json(sample_biorxiv_payload, query="crispr")
+        assert len(empty) == 0
+
+    def test_parse_biorxiv_json_invalid(self):
+        with pytest.raises(InvalidResponseError):
+            parse_biorxiv_json({"invalid": "data"})
+
+    @patch("paper_watcher.sources.biorxiv._get_biorxiv")
+    def test_search_biorxiv_calls_api(self, mock_get, sample_biorxiv_payload: dict):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = sample_biorxiv_payload
+        mock_get.return_value = mock_resp
+
+        result = search_biorxiv(
+            query="biosensor",
+            max_results=5,
+            server="biorxiv",
+            interval="30d",
+        )
+
+        assert result.total_found == 1
+        assert result.server == "biorxiv"
+        assert len(result.papers) == 1
+        assert result.papers[0].title == "Machine learning for allosteric biosensor engineering"

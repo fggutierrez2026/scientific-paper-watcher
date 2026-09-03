@@ -155,10 +155,26 @@ Example:
 ```env
 # Database and output paths
 PAPER_WATCHER_DB=data/papers.db
+PAPER_WATCHER_REPORT_DIR=reports
+
+# Network settings
+REQUEST_TIMEOUT=15
+MAX_RETRIES=3
 
 # NCBI E-utilities (PubMed)
 NCBI_EMAIL=your-email@example.com
+NCBI_API_KEY=your-optional-ncbi-api-key
+
+# bioRxiv / medRxiv settings
+BIORXIV_SERVER=biorxiv
+BIORXIV_INTERVAL=30d
+```
+
+*(Note: legacy aliases `DATABASE_PATH`, `REPORT_DIR`, and `PUBMED_EMAIL` are also supported for backwards compatibility).*
+
 Do not commit secrets or personal configuration.
+
+Recommended `.gitignore` entries:
 
 ```text
 .env

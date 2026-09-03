@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 
 from paper_watcher.exceptions import (
@@ -388,3 +389,61 @@ def to_arxiv_query(
         parts
     )
 
+
+def _eval_bool_ast(node: ast.AST) -> bool:
+    if isinstance(node, ast.Expression):
+        return _eval_bool_ast(node.body)
+    elif isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not _eval_bool_ast(node.operand)
+    elif isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return all(_eval_bool_ast(val) for val in node.values)
+        elif isinstance(node.op, ast.Or):
+            return any(_eval_bool_ast(val) for val in node.values)
+    raise ValueError(f"Unsupported AST node: {type(node)}")
+
+
+def matches_query(
+    query: str,
+    text: str,
+) -> bool:
+    """
+    Evaluates whether `text` satisfies the compound boolean `query`.
+
+    Tokenizes `query`, checks presence of terms and phrases in `text` (case-insensitive),
+    and safely evaluates the resulting boolean logic expression.
+    """
+    tokens = tokenize_query(query)
+    lower_text = text.lower()
+
+    expr_parts: list[str] = []
+    for token_type, value in tokens:
+        if token_type == "TERM":
+            words = value.lower().split()
+            term_match = all(w in lower_text for w in words)
+            expr_parts.append(str(term_match))
+        elif token_type == "PHRASE":
+            phrase_match = value.lower() in lower_text
+            expr_parts.append(str(phrase_match))
+        elif token_type == "OP":
+            if value == "NOT":
+                expr_parts.append("and not")
+            elif value == "AND":
+                expr_parts.append("and")
+            elif value == "OR":
+                expr_parts.append("or")
+        elif token_type == "LPAREN":
+            expr_parts.append("(")
+        elif token_type == "RPAREN":
+            expr_parts.append(")")
+
+    expr_str = " ".join(expr_parts)
+    try:
+        parsed = ast.parse(expr_str, mode="eval")
+        return _eval_bool_ast(parsed)
+    except Exception as exc:
+        raise QuerySyntaxError(
+            f"Failed to evaluate query match: {exc}"
+        ) from exc

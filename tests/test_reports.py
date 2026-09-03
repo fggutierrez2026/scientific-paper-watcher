@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from paper_watcher.models import Paper
 from paper_watcher.reports.markdown import (
     escape_markdown_table_cell,
-    render_all_papers_report_markdown,
-    render_paper_markdown,
-    render_report_markdown,
     slugify_query,
     write_all_papers_report,
     write_markdown_report,
@@ -70,4 +68,42 @@ def test_render_and_write_all_papers_report(tmp_path: Path):
     assert "| Query | Title | Authors | Source | URL |" in content
     assert "legacy / unknown" in content
     assert "Design of Novel Enzymes" in content
+
+
+def test_render_paper_markdown_cross_source(tmp_path: Path):
+    cross_paper = Paper(
+        source="arxiv",
+        external_id="2608.12345",
+        title="Multi-Source Synthesis of GFP",
+        authors=["Alice", "Bob"],
+        abstract="Dual discovery abstract.",
+        journal="Science",
+        publication_date="2026-08-01",
+        electronic_date=None,
+        pubmed_date="2026-08-20",
+        doi="10.1038/nature12345",
+        url="https://arxiv.org/abs/2608.12345",
+        sources=["arxiv", "pubmed"],
+        external_ids={"arxiv": "2608.12345", "pubmed": "42111111"},
+        source_urls={
+            "arxiv": "https://arxiv.org/abs/2608.12345",
+            "pubmed": "https://pubmed.ncbi.nlm.nih.gov/42111111/",
+        },
+    )
+
+    report_path = write_markdown_report(
+        report_dir=tmp_path,
+        query="gfp synthesis",
+        papers=[cross_paper],
+    )
+    content = report_path.read_text(encoding="utf-8")
+    assert "> [!NOTE]" in content
+    assert "Publicación multi-fuente" in content
+    assert "**ARXIV, PUBMED**" in content
+    assert "- **Sources:** arxiv, pubmed" in content
+    assert "arxiv: 2608.12345" in content
+    assert "pubmed: 42111111" in content
+    assert "[Arxiv](https://arxiv.org/abs/2608.12345)" in content
+    assert "[Pubmed](https://pubmed.ncbi.nlm.nih.gov/42111111/)" in content
+    assert "**Cross-source Merged:** 1" in content
 

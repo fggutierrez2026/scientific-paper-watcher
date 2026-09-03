@@ -9,7 +9,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 
 ## Métricas de Progreso Global
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 1:** 0 / 4 tareas principales completadas
+- **Fase 1:** 2 / 4 tareas principales completadas
 - **Fase 2:** 0 / 3 tareas principales completadas
 - **Fase 3:** 0 / 3 tareas principales completadas
 - **Fase 4:** 0 / 3 tareas principales completadas
@@ -50,16 +50,16 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 ## Fase 1: Deduplicación Cross-Source, Nuevas Fuentes y Ventanas Temporales (v0.4.0)
 **Objetivo:** Garantizar que la recopilación científica sea completa, sin duplicados entre preprints y revistas indexadas, y con capacidad de búsqueda incremental.
 
-- [ ] **Tarea 1.1: Deduplicación y fusión cross-source (Resolución por DOI / Título)**
-  - [ ] Analizar y rediseñar el esquema de base de datos para permitir que una misma publicación canónica vincule múltiples fuentes (ej. versión arXiv y posterior versión PubMed).
-  - [ ] Implementar algoritmo de fusión: si un paper entrante coincide en DOI o título normalizado con uno existente, asociar la nueva fuente/URL sin duplicar la entidad.
-  - [ ] Actualizar los reportes Markdown para indicar si un paper fue avistado tanto en preprint como en revista revisada por pares.
+- [x] **Tarea 1.1: Deduplicación y fusión cross-source (Resolución por DOI / Título)**
+  - [x] Analizar y rediseñar el esquema de base de datos para permitir que una misma publicación canónica vincule múltiples fuentes (ej. versión arXiv y posterior versión PubMed).
+  - [x] Implementar algoritmo de fusión: si un paper entrante coincide en DOI o título normalizado con uno existente, asociar la nueva fuente/URL sin duplicar la entidad.
+  - [x] Actualizar los reportes Markdown para indicar si un paper fue avistado tanto en preprint como en revista revisada por pares.
 
-- [ ] **Tarea 1.2: Integración de fuentes bioRxiv y medRxiv**
-  - [ ] Crear [`src/paper_watcher/sources/biorxiv.py`](file:///home/fernando/Escritorio/my_projects/scientific-paper-watcher/src/paper_watcher/sources/biorxiv.py) usando la API de bioRxiv/medRxiv.
-  - [ ] Mapear respuestas al modelo común `Paper`.
-  - [ ] Integrar bioRxiv al pipeline de búsqueda en `main.py` manteniendo aislamiento de fallos.
-  - [ ] Añadir tests correspondientes en `tests/test_sources.py`.
+- [x] **Tarea 1.2: Integración de fuentes bioRxiv y medRxiv**
+  - [x] Crear [`src/paper_watcher/sources/biorxiv.py`](file:///home/fernando/Escritorio/my_projects/scientific-paper-watcher/src/paper_watcher/sources/biorxiv.py) usando la API de bioRxiv/medRxiv.
+  - [x] Mapear respuestas al modelo común `Paper`.
+  - [x] Integrar bioRxiv al pipeline de búsqueda en `main.py` manteniendo aislamiento de fallos.
+  - [x] Añadir tests correspondientes en `tests/test_sources.py`.
 
 - [ ] **Tarea 1.3: Integración de OpenAlex / Europe PMC**
   - [ ] Diseñar adaptador para OpenAlex (`sources/openalex.py`) para enriquecer papers con citas, tópicos y enlaces open-access a PDFs completos.

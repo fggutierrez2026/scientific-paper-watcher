@@ -18,6 +18,8 @@ class Config:
     max_retries: int
     ncbi_email: str
     ncbi_api_key: str | None = None
+    biorxiv_interval: str = "30d"
+    biorxiv_server: str = "biorxiv"
 
 def load_config() -> Config:
     database_path = PROJECT_ROOT / (
@@ -52,6 +54,9 @@ def load_config() -> Config:
         or None
     )
 
+    biorxiv_interval = os.getenv("BIORXIV_INTERVAL", "30d").strip() or "30d"
+    biorxiv_server = os.getenv("BIORXIV_SERVER", "biorxiv").strip() or "biorxiv"
+
     return Config(
         database_path=database_path,
         report_dir=report_dir,
@@ -59,4 +64,6 @@ def load_config() -> Config:
         max_retries=max_retries,
         ncbi_email=ncbi_email,
         ncbi_api_key=ncbi_api_key,
+        biorxiv_interval=biorxiv_interval,
+        biorxiv_server=biorxiv_server,
     )

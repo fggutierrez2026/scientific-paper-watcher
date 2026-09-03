@@ -36,19 +36,50 @@ def render_paper_markdown(
 
     lines.append("")
 
-    lines.append(
-        f"**{paper.source.upper()}**"
-    )
+    if paper.is_preprint_and_peer_reviewed:
+        lines.append("> [!NOTE]")
+        preprint_sources = [
+            s for s in paper.sources
+            if s.lower() in {"arxiv", "biorxiv", "medrxiv"}
+        ]
+        prep_str = (
+            ", ".join(s.upper() for s in preprint_sources)
+            if preprint_sources
+            else "preprint"
+        )
+        lines.append(
+            f"> **Publicación multi-fuente:** Este trabajo fue avistado tanto como preprint en **{prep_str}** como en revista indexada en **PubMed**."
+        )
+        lines.append("")
 
-    lines.append("")
-
-    lines.append(
-        f"- **Source:** {paper.source}"
-    )
-
-    lines.append(
-        f"- **External ID:** {paper.external_id}"
-    )
+    if paper.is_cross_source:
+        header_sources = ", ".join(s.upper() for s in paper.sources)
+        lines.append(
+            f"**{header_sources}**"
+        )
+        lines.append("")
+        lines.append(
+            f"- **Sources:** {', '.join(paper.sources)}"
+        )
+        if paper.external_ids:
+            ext_ids_str = ", ".join(
+                f"{src}: {eid}"
+                for src, eid in paper.external_ids.items()
+            )
+            lines.append(
+                f"- **External IDs:** {ext_ids_str}"
+            )
+    else:
+        lines.append(
+            f"**{paper.source.upper()}**"
+        )
+        lines.append("")
+        lines.append(
+            f"- **Source:** {paper.source}"
+        )
+        lines.append(
+            f"- **External ID:** {paper.external_id}"
+        )
 
     if paper.published:
         lines.append(
@@ -65,7 +96,15 @@ def render_paper_markdown(
             f"- **DOI:** {paper.doi}"
         )
 
-    if paper.url:
+    if paper.is_cross_source and paper.source_urls:
+        links_str = " | ".join(
+            f"[{src.capitalize()}]({url})"
+            for src, url in paper.source_urls.items()
+        )
+        lines.append(
+            f"- **URLs:** {links_str}"
+        )
+    elif paper.url:
         lines.append(
             f"- **URL:** {paper.url}"
         )
@@ -129,6 +168,14 @@ def render_report_markdown(
     lines.append(
         f"**New Papers:** {len(papers)}"
     )
+
+    merged_count = sum(
+        1 for p in papers if p.is_cross_source
+    )
+    if merged_count > 0:
+        lines.append(
+            f"**Cross-source Merged:** {merged_count}"
+        )
 
     lines.append("")
 

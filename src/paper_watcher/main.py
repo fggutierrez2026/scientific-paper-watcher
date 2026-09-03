@@ -16,6 +16,7 @@ from paper_watcher.reports.markdown import (
     write_markdown_report,
 )
 from paper_watcher.sources.arxiv import search_arxiv
+from paper_watcher.sources.biorxiv import search_biorxiv
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
     search_pubmed,
@@ -336,12 +337,53 @@ def run(
 
         successful_sources += 1
 
-        # Conserva aquí las impresiones que
-        # ya utilizabas para arXiv.
-
     except PaperWatcherError as exc:
         warning = (
             f"arXiv unavailable: {exc}"
+        )
+
+        logger.warning(warning)
+
+        source_warnings.append(
+            warning
+        )
+
+        print()
+        print(warning)
+
+    print()
+    print("=" * 70)
+    print("SOURCE: bioRxiv")
+    print("=" * 70)
+
+    biorxiv_papers: list[Paper] = []
+
+    try:
+        biorxiv_result = search_biorxiv(
+            common_query,
+            max_results=max_results,
+            server=config.biorxiv_server,
+            interval=config.biorxiv_interval,
+        )
+
+        biorxiv_papers = (
+            biorxiv_result.papers
+        )
+
+        print(
+            f"Preprints matched: "
+            f"{len(biorxiv_papers)}"
+        )
+        print()
+
+        for paper in biorxiv_papers:
+            print_paper(paper)
+
+        successful_sources += 1
+
+    except PaperWatcherError as exc:
+        warning = (
+            f"bioRxiv unavailable: {exc}"
         )
 
         logger.warning(warning)
@@ -362,6 +404,7 @@ def run(
     all_papers = (
         pubmed_papers
         + arxiv_papers
+        + biorxiv_papers
     )
 
     print()
@@ -377,6 +420,11 @@ def run(
     print(
         f"arXiv papers: "
         f"{len(arxiv_papers)}"
+    )
+
+    print(
+        f"bioRxiv papers: "
+        f"{len(biorxiv_papers)}"
     )
 
     print(
@@ -414,6 +462,11 @@ def run(
         f"New papers: {insert_result.inserted_count}"
     )
 
+    if insert_result.merged_count > 0:
+        print(
+            f"Cross-source merged: {insert_result.merged_count}"
+        )
+
     print(
         f"Known papers: {insert_result.known_count}"
     )
@@ -422,16 +475,21 @@ def run(
         f"Total papers stored: {total_stored}"
     )
 
+    reported_papers = (
+        insert_result.new_papers
+        + insert_result.merged_papers
+    )
+
     report_path = write_markdown_report(
         report_dir=config.report_dir,
         query=common_query,
-        papers=insert_result.new_papers,
+        papers=reported_papers,
         warnings=source_warnings,
     )
 
     print(
         f"Sources completed: "
-        f"{successful_sources}/2"
+        f"{successful_sources}/3"
     )
 
     print()

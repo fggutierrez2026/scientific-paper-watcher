@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-import pytest
 import sqlite3
+from pathlib import Path
+
+import pytest
 
 from paper_watcher.models import Paper
 from paper_watcher.storage.sqlite import initialize_database
