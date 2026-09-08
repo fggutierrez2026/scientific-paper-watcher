@@ -96,6 +96,26 @@ def render_paper_markdown(
             f"- **DOI:** {paper.doi}"
         )
 
+    if paper.openalex_id:
+        lines.append(
+            f"- **OpenAlex:** [{paper.openalex_id}]({paper.openalex_id})"
+        )
+
+    if paper.citation_count is not None:
+        lines.append(
+            f"- **Citations (OpenAlex):** {paper.citation_count}"
+        )
+
+    if paper.topics:
+        lines.append(
+            f"- **Topics:** {', '.join(paper.topics)}"
+        )
+
+    if paper.pdf_url:
+        lines.append(
+            f"- **Open-access PDF:** [Download PDF]({paper.pdf_url})"
+        )
+
     if paper.is_cross_source and paper.source_urls:
         links_str = " | ".join(
             f"[{src.capitalize()}]({url})"

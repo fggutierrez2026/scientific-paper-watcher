@@ -17,6 +17,7 @@ from paper_watcher.reports.markdown import (
 )
 from paper_watcher.sources.arxiv import search_arxiv
 from paper_watcher.sources.biorxiv import BIORXIV_SERVERS, search_biorxiv
+from paper_watcher.sources.openalex import enrich_papers_with_openalex
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
     search_pubmed,
@@ -156,6 +157,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    run_parser.add_argument(
+        "--openalex",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enrich results with OpenAlex citations, topics, and an "
+            "open-access PDF link. Overrides OPENALEX_ENABLED."
+        ),
+    )
+
     add_query_parser = subparsers.add_parser(
         "add-query",
         help="Store a query to watch.",
@@ -204,6 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run(
     query: str,
     max_results: int,
+    use_openalex: bool | None = None,
 ) -> None:
     """
     Run entry point for the application.
@@ -409,6 +421,36 @@ def run(
         + medrxiv_papers
     )
 
+    openalex_enabled = (
+        config.openalex_enabled if use_openalex is None else use_openalex
+    )
+    openalex_enriched_count = 0
+    openalex_unmatched_count = 0
+
+    if openalex_enabled and all_papers:
+        print()
+        print("=" * 70)
+        print("OPENALEX ENRICHMENT")
+        print("=" * 70)
+
+        enrichment_result = enrich_papers_with_openalex(
+            all_papers,
+            api_key=config.openalex_api_key,
+        )
+        all_papers = enrichment_result.papers
+        openalex_enriched_count = enrichment_result.enriched_count
+        openalex_unmatched_count = enrichment_result.unmatched_count
+
+        print(f"Papers enriched: {openalex_enriched_count}")
+        print(f"Papers not matched: {openalex_unmatched_count}")
+        print(f"Enrichment failures: {enrichment_result.failed_count}")
+
+        if enrichment_result.failed_count:
+            source_warnings.append(
+                "OpenAlex enrichment failed for "
+                f"{enrichment_result.failed_count} paper(s)."
+            )
+
     print()
     print("=" * 70)
     print("SUMMARY")
@@ -438,6 +480,10 @@ def run(
         f"Total collected papers: "
         f"{len(all_papers)}"
     )
+
+    if openalex_enabled:
+        print(f"OpenAlex enriched: {openalex_enriched_count}")
+        print(f"OpenAlex unmatched: {openalex_unmatched_count}")
 
     print()
     print("=" * 70)
@@ -621,6 +667,7 @@ def report_all_command() -> None:
 def run_command(
     query: str | None,
     max_results: int,
+    use_openalex: bool | None = None,
 ) -> None:
     # Modo 1:
     # El usuario proporcionó una consulta concreta.
@@ -628,6 +675,7 @@ def run_command(
         run(
             query=query,
             max_results=max_results,
+            use_openalex=use_openalex,
         )
         return
 
@@ -682,6 +730,7 @@ def run_command(
             run(
                 query=stored_query,
                 max_results=max_results,
+                use_openalex=use_openalex,
             )
 
             successful_queries += 1
@@ -765,6 +814,7 @@ def main(
             run_command(
                 query=args.query,
                 max_results=args.max_results,
+                use_openalex=args.openalex,
             )
 
             return 0

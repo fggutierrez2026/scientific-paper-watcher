@@ -107,3 +107,25 @@ def test_render_paper_markdown_cross_source(tmp_path: Path):
     assert "[Pubmed](https://pubmed.ncbi.nlm.nih.gov/42111111/)" in content
     assert "**Cross-source Merged:** 1" in content
 
+
+def test_report_renders_openalex_enrichment(tmp_path: Path, sample_paper: Paper):
+    enriched = Paper(
+        **{
+            **sample_paper.__dict__,
+            "openalex_id": "https://openalex.org/W123",
+            "citation_count": 42,
+            "topics": ["Biosensor Engineering", "Protein Design"],
+            "pdf_url": "https://example.org/paper.pdf",
+        }
+    )
+
+    report_path = write_markdown_report(
+        report_dir=tmp_path,
+        query="biosensors",
+        papers=[enriched],
+    )
+    content = report_path.read_text(encoding="utf-8")
+
+    assert "**Citations (OpenAlex):** 42" in content
+    assert "**Topics:** Biosensor Engineering, Protein Design" in content
+    assert "[Download PDF](https://example.org/paper.pdf)" in content

@@ -17,6 +17,10 @@ class Paper:
     sources: list[str] = field(default_factory=list)
     external_ids: dict[str, str] = field(default_factory=dict)
     source_urls: dict[str, str] = field(default_factory=dict)
+    openalex_id: str | None = None
+    citation_count: int | None = None
+    topics: list[str] = field(default_factory=list)
+    pdf_url: str | None = None
 
     def __post_init__(self) -> None:
         if not self.sources and self.source:

@@ -61,9 +61,9 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
   - [x] Integrar bioRxiv y medRxiv al pipeline de búsqueda en `main.py` mediante consultas independientes y con aislamiento de fallos.
   - [x] Añadir tests para ambas fuentes y para la continuidad del pipeline si una de ellas falla.
 
-- [ ] **Tarea 1.3: Integración de OpenAlex / Europe PMC**
-  - [ ] Diseñar adaptador para OpenAlex (`sources/openalex.py`) para enriquecer papers con citas, tópicos y enlaces open-access a PDFs completos.
-  - [ ] Configurar llamadas opcionales controladas por flags o variables de entorno.
+- [x] **Tarea 1.3: Integración de OpenAlex / Europe PMC**
+  - [x] Diseñar adaptador para OpenAlex (`sources/openalex.py`) para enriquecer papers con citas, tópicos y enlaces open-access a PDFs completos.
+  - [x] Configurar llamadas opcionales controladas por flags o variables de entorno.
 
 - [ ] **Tarea 1.4: Búsquedas incrementales y ventanas de tiempo**
   - [ ] Agregar columna `last_checked_at` en la tabla `watch_queries`.

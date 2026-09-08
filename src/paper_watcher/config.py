@@ -19,6 +19,24 @@ class Config:
     ncbi_email: str
     ncbi_api_key: str | None = None
     biorxiv_interval: str = "30d"
+    openalex_enabled: bool = False
+    openalex_api_key: str | None = None
+
+
+def _get_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off", ""}:
+        return False
+
+    raise ValueError(
+        f"{name} must be one of: true, false, 1, 0, yes, no, on, off"
+    )
 
 def load_config() -> Config:
     database_path = PROJECT_ROOT / (
@@ -54,6 +72,8 @@ def load_config() -> Config:
     )
 
     biorxiv_interval = os.getenv("BIORXIV_INTERVAL", "30d").strip() or "30d"
+    openalex_enabled = _get_bool("OPENALEX_ENABLED")
+    openalex_api_key = os.getenv("OPENALEX_API_KEY", "").strip() or None
 
     return Config(
         database_path=database_path,
@@ -63,4 +83,6 @@ def load_config() -> Config:
         ncbi_email=ncbi_email,
         ncbi_api_key=ncbi_api_key,
         biorxiv_interval=biorxiv_interval,
+        openalex_enabled=openalex_enabled,
+        openalex_api_key=openalex_api_key,
     )

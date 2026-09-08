@@ -169,6 +169,10 @@ NCBI_API_KEY=your-optional-ncbi-api-key
 
 # bioRxiv / medRxiv settings (both sources run independently)
 BIORXIV_INTERVAL=30d
+
+# Optional OpenAlex enrichment
+OPENALEX_ENABLED=false
+OPENALEX_API_KEY=your-optional-openalex-api-key
 ```
 
 *(Note: legacy aliases `DATABASE_PATH`, `REPORT_DIR`, and `PUBMED_EMAIL` are also supported for backwards compatibility).*
@@ -224,7 +228,22 @@ paper-watcher run \
     --max-results 5
 ```
 
-The watcher queries PubMed and arXiv independently.
+The watcher queries PubMed, arXiv, bioRxiv, and medRxiv independently.
+OpenAlex enrichment is disabled by default. Enable it for one run with:
+
+```bash
+paper-watcher run \
+    --query "protein design" \
+    --max-results 5 \
+    --openalex
+```
+
+Use `--no-openalex` to override an enabled `OPENALEX_ENABLED` setting. When
+enabled, OpenAlex looks up each collected paper by DOI, falling back to an exact
+normalized-title match when no DOI is available. Citation counts, up to three
+topics, the OpenAlex identifier, and the best direct open-access PDF link are
+stored in SQLite and included in new-paper reports. An API key is optional for
+casual use and recommended for a larger request budget.
 
 The high-level flow is:
 
@@ -240,12 +259,10 @@ normalization
   +-----------------------+
   |                       |
   v                       v
-PubMed translation     arXiv translation
-  |                       |
-  v                       v
-PubMed                 arXiv
-  |                       |
-  +-----------+-----------+
+PubMed / arXiv / bioRxiv / medRxiv
+              |
+              v
+     OpenAlex (optional)
               |
               v
             Paper

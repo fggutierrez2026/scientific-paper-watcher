@@ -3,11 +3,23 @@ from unittest.mock import call, patch
 
 from paper_watcher.config import Config
 from paper_watcher.exceptions import APIError
-from paper_watcher.main import run
+from paper_watcher.main import build_parser, run
 from paper_watcher.models import Paper
 from paper_watcher.sources.arxiv import ArxivSearchResult
 from paper_watcher.sources.biorxiv import BiorxivSearchResult
 from paper_watcher.sources.pubmed import PubMedSearchResult
+
+
+def test_openalex_cli_flag_can_override_configuration():
+    parser = build_parser()
+
+    enabled = parser.parse_args(["run", "--query", "biosensor", "--openalex"])
+    disabled = parser.parse_args(
+        ["run", "--query", "biosensor", "--no-openalex"]
+    )
+
+    assert enabled.openalex is True
+    assert disabled.openalex is False
 
 
 def test_run_queries_both_preprint_servers_and_isolates_failure(

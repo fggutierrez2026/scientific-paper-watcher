@@ -9,6 +9,7 @@ from paper_watcher.storage.sqlite import (
     count_papers,
     get_all_paper_report_rows,
     get_paper_by_id,
+    initialize_database,
     insert_paper,
     insert_papers,
     list_watch_queries,
@@ -31,6 +32,40 @@ class TestSqliteStorage:
         assert "watch_queries" in tables
         assert "paper_query_matches" in tables
 
+    def test_database_initialization_migrates_enrichment_columns(
+        self,
+        tmp_path: Path,
+    ):
+        database_path = tmp_path / "legacy.db"
+        connection = sqlite3.connect(database_path)
+        connection.execute(
+            """
+            CREATE TABLE papers (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                doi TEXT,
+                title TEXT NOT NULL,
+                abstract TEXT,
+                authors TEXT NOT NULL,
+                published TEXT,
+                url TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.commit()
+        connection.close()
+
+        initialize_database(database_path)
+
+        connection = sqlite3.connect(database_path)
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(papers)")
+        }
+        connection.close()
+        assert {"openalex_id", "citation_count", "topics", "pdf_url"} <= columns
+
     def test_insert_single_paper(self, db_connection: sqlite3.Connection, sample_paper: Paper):
         paper_id = insert_paper(db_connection, sample_paper)
         assert paper_id is not None
@@ -52,6 +87,36 @@ class TestSqliteStorage:
         assert retrieved.external_id == sample_paper.external_id
         assert retrieved.authors == sample_paper.authors
         assert retrieved.doi == sample_paper.doi
+
+    def test_openalex_enrichment_is_persisted_and_refreshed(
+        self,
+        db_connection: sqlite3.Connection,
+        sample_paper: Paper,
+    ):
+        enriched = Paper(
+            **{
+                **sample_paper.__dict__,
+                "openalex_id": "https://openalex.org/W123",
+                "citation_count": 12,
+                "topics": ["Biosensor Engineering"],
+                "pdf_url": "https://example.org/paper.pdf",
+            }
+        )
+        result = insert_papers(db_connection, [enriched])
+        paper_id = result.inserted_ids[0]
+
+        retrieved = get_paper_by_id(db_connection, paper_id)
+        assert retrieved is not None
+        assert retrieved.openalex_id == "https://openalex.org/W123"
+        assert retrieved.citation_count == 12
+        assert retrieved.topics == ["Biosensor Engineering"]
+        assert retrieved.pdf_url == "https://example.org/paper.pdf"
+
+        refreshed = Paper(**{**enriched.__dict__, "citation_count": 15})
+        insert_papers(db_connection, [refreshed])
+        retrieved = get_paper_by_id(db_connection, paper_id)
+        assert retrieved is not None
+        assert retrieved.citation_count == 15
 
     def test_insert_papers_batch_with_provenance(
         self,

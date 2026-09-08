@@ -16,6 +16,8 @@ def test_default_config(tmp_path):
         assert cfg.ncbi_email == ""
         assert cfg.ncbi_api_key is None
         assert cfg.biorxiv_interval == "30d"
+        assert cfg.openalex_enabled is False
+        assert cfg.openalex_api_key is None
 
 
 def test_config_with_custom_env():
@@ -27,6 +29,8 @@ def test_config_with_custom_env():
         "NCBI_EMAIL": "researcher@example.org",
         "NCBI_API_KEY": "my_api_key_123",
         "BIORXIV_INTERVAL": "14d",
+        "OPENALEX_ENABLED": "true",
+        "OPENALEX_API_KEY": "test-openalex-key",
     }
     with patch.dict(os.environ, custom_env, clear=True):
         cfg = load_config()
@@ -37,6 +41,8 @@ def test_config_with_custom_env():
         assert cfg.ncbi_email == "researcher@example.org"
         assert cfg.ncbi_api_key == "my_api_key_123"
         assert cfg.biorxiv_interval == "14d"
+        assert cfg.openalex_enabled is True
+        assert cfg.openalex_api_key == "test-openalex-key"
 
 
 def test_config_with_legacy_aliases():

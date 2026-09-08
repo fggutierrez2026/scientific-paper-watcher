@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS papers (
     authors TEXT NOT NULL,
     published TEXT,
     url TEXT,
+    openalex_id TEXT,
+    citation_count INTEGER,
+    topics TEXT NOT NULL DEFAULT '[]',
+    pdf_url TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
@@ -191,6 +195,22 @@ def initialize_database(
             PAPERS_SCHEMA
         )
 
+        existing_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(papers)").fetchall()
+        }
+        enrichment_columns = {
+            "openalex_id": "TEXT",
+            "citation_count": "INTEGER",
+            "topics": "TEXT NOT NULL DEFAULT '[]'",
+            "pdf_url": "TEXT",
+        }
+        for column_name, column_type in enrichment_columns.items():
+            if column_name not in existing_columns:
+                connection.execute(
+                    f"ALTER TABLE papers ADD COLUMN {column_name} {column_type}"
+                )
+
         connection.execute(
             PAPERS_UNIQUE_INDEX
         )
@@ -254,9 +274,13 @@ def insert_paper(
             abstract,
             authors,
             published,
-            url
+            url,
+            openalex_id,
+            citation_count,
+            topics,
+            pdf_url
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             paper.source,
@@ -272,6 +296,10 @@ def insert_paper(
             ),
             paper.published,
             paper.url,
+            paper.openalex_id,
+            paper.citation_count,
+            json.dumps(paper.topics, ensure_ascii=False),
+            paper.pdf_url,
         ),
     )
 
@@ -441,7 +469,15 @@ def _enrich_paper_metadata(
 ) -> None:
     current = connection.execute(
         """
-        SELECT doi, abstract, published, url
+        SELECT
+            doi,
+            abstract,
+            published,
+            url,
+            openalex_id,
+            citation_count,
+            topics,
+            pdf_url
         FROM papers
         WHERE id = ?
         """,
@@ -452,7 +488,7 @@ def _enrich_paper_metadata(
         return
 
     updates: list[str] = []
-    values: list[str] = []
+    values: list[object] = []
 
     if not current["doi"] and incoming.doi:
         norm = normalize_doi(incoming.doi)
@@ -468,8 +504,29 @@ def _enrich_paper_metadata(
         updates.append("published = ?")
         values.append(incoming.published)
 
+    if incoming.openalex_id and current["openalex_id"] != incoming.openalex_id:
+        updates.append("openalex_id = ?")
+        values.append(incoming.openalex_id)
+
+    if (
+        incoming.citation_count is not None
+        and current["citation_count"] != incoming.citation_count
+    ):
+        updates.append("citation_count = ?")
+        values.append(incoming.citation_count)
+
+    if incoming.topics:
+        serialized_topics = json.dumps(incoming.topics, ensure_ascii=False)
+        if current["topics"] != serialized_topics:
+            updates.append("topics = ?")
+            values.append(serialized_topics)
+
+    if incoming.pdf_url and current["pdf_url"] != incoming.pdf_url:
+        updates.append("pdf_url = ?")
+        values.append(incoming.pdf_url)
+
     if updates:
-        values.append(str(paper_id))
+        values.append(paper_id)
         sql = f"UPDATE papers SET {', '.join(updates)} WHERE id = ?"
         connection.execute(sql, tuple(values))
 
@@ -521,6 +578,7 @@ def insert_papers(
         )
 
         if existing_id is not None:
+            _enrich_paper_metadata(connection, existing_id, paper)
             if query is not None:
                 record_paper_query_match(
                     connection,
@@ -702,6 +760,10 @@ def _row_to_paper(
         sources=sources,
         external_ids=external_ids,
         source_urls=source_urls,
+        openalex_id=row["openalex_id"],
+        citation_count=row["citation_count"],
+        topics=json.loads(row["topics"] or "[]"),
+        pdf_url=row["pdf_url"],
     )
 
 def get_paper_by_id(
@@ -718,7 +780,11 @@ def get_paper_by_id(
             abstract,
             authors,
             published,
-            url
+            url,
+            openalex_id,
+            citation_count,
+            topics,
+            pdf_url
         FROM papers
         WHERE id = ?
         """,
