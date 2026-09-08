@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 from paper_watcher.models import Paper
@@ -35,7 +36,8 @@ CREATE TABLE IF NOT EXISTS papers (
 WATCH_QUERIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS watch_queries (
     id INTEGER PRIMARY KEY,
-    query TEXT NOT NULL
+    query TEXT NOT NULL,
+    last_checked_at TEXT
 );
 """
 
@@ -218,6 +220,17 @@ def initialize_database(
         connection.execute(
             WATCH_QUERIES_SCHEMA
         )
+
+        watch_query_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(watch_queries)"
+            ).fetchall()
+        }
+        if "last_checked_at" not in watch_query_columns:
+            connection.execute(
+                "ALTER TABLE watch_queries ADD COLUMN last_checked_at TEXT"
+            )
 
         connection.execute(
             WATCH_QUERIES_UNIQUE_INDEX
@@ -894,11 +907,36 @@ def list_watch_query_rows(
         """
         SELECT
             id,
-            query
+            query,
+            last_checked_at
         FROM watch_queries
         ORDER BY id
         """
     ).fetchall()
+
+
+def update_watch_query_last_checked(
+    connection: sqlite3.Connection,
+    query_id: int,
+    checked_at: datetime,
+) -> bool:
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=UTC)
+    else:
+        checked_at = checked_at.astimezone(UTC)
+
+    cursor = connection.execute(
+        """
+        UPDATE watch_queries
+        SET last_checked_at = ?
+        WHERE id = ?
+        """,
+        (
+            checked_at.isoformat(timespec="seconds"),
+            query_id,
+        ),
+    )
+    return cursor.rowcount > 0
 
 def get_all_paper_report_rows(
     connection: sqlite3.Connection,

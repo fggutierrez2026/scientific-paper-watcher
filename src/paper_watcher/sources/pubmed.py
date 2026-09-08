@@ -25,6 +25,7 @@ from paper_watcher.exceptions import (
     ServiceUnavailableError,
 )
 from paper_watcher.models import Paper
+from paper_watcher.time_window import format_pubmed_date, validate_window
 
 ESEARCH_URL = (
     "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
@@ -237,9 +238,12 @@ class PubMedSearchResult:
     total_count: int
     pmids: list[str]
 
-def search_pubmed(query: str, 
-    max_results: int = 5
-    ) -> PubMedSearchResult:
+def search_pubmed(
+    query: str,
+    max_results: int = 5,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> PubMedSearchResult:
 
     """
     Search PubMed for articles matching the given query.
@@ -265,6 +269,16 @@ def search_pubmed(query: str,
 
     if config.ncbi_api_key:
         params["api_key"] = config.ncbi_api_key
+
+    since, until = validate_window(since, until)
+    if since is not None and until is not None:
+        params.update(
+            {
+                "datetype": "edat",
+                "mindate": format_pubmed_date(since),
+                "maxdate": format_pubmed_date(until),
+            }
+        )
 
     logger.info(
         "Searching PubMed for query=%r max_results=%d",

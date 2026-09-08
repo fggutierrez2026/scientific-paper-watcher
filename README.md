@@ -4,7 +4,7 @@ Scientific Paper Watcher is a Python command-line application for monitoring sci
 
 It can search scientific papers, normalize results into a common model, store them in SQLite, detect new and known papers, preserve query-to-paper provenance, manage persistent watch queries, execute batch searches, and generate Markdown reports.
 
-**Current version: `0.3.0`**
+**Current version: `0.4.0`**
 
 ---
 
@@ -141,7 +141,7 @@ paper-watcher --version
 Expected:
 
 ```text
-paper-watcher 0.3.0
+paper-watcher 0.4.0
 ```
 
 ---
@@ -244,6 +244,30 @@ normalized-title match when no DOI is available. Citation counts, up to three
 topics, the OpenAlex identifier, and the best direct open-access PDF link are
 stored in SQLite and included in new-paper reports. An API key is optional for
 casual use and recommended for a larger request budget.
+
+## Time windows and incremental runs
+
+Limit a run to an explicit UTC date or a rolling number of days:
+
+```bash
+paper-watcher run --query "protein design" --since 2026-08-01
+paper-watcher run --query "protein design" --days 7
+```
+
+`--since` and `--days` are mutually exclusive. The date window is translated to
+each provider's native filtering syntax: Entrez dates for PubMed,
+`submittedDate` for arXiv, and date-range endpoints for bioRxiv and medRxiv.
+Overlapping boundary dates are safe because SQLite identity resolution removes
+already-known papers from the new-paper report.
+
+Stored watch queries are incremental automatically. Their first successful run
+performs the normally configured search and records `last_checked_at`; later
+runs use that checkpoint as their lower bound. A checkpoint advances only when
+all four primary sources complete, so a temporary source failure cannot create
+a gap. Explicit `--since` or `--days` values override the stored checkpoint for
+that execution. The checkpoint also remains unchanged if `--max-results`
+truncates an incremental window; increase the limit and rerun to avoid skipping
+papers.
 
 The high-level flow is:
 
@@ -466,7 +490,9 @@ A paper is uniquely identified inside a source by:
 
 ## `watch_queries`
 
-Stores active queries used in future batch runs.
+Stores active queries used in future batch runs together with the UTC
+`last_checked_at` checkpoint used for incremental retrieval. `list-queries`
+shows the checkpoint or `never` before the first complete run.
 
 Represents:
 
@@ -797,6 +823,20 @@ Highlights:
 - PubMed query translation;
 - arXiv query translation;
 - canonical query persistence.
+
+## v0.4.0
+
+Cross-source and incremental literature watcher.
+
+Highlights:
+
+- DOI/title-based cross-source deduplication and metadata fusion;
+- bioRxiv and medRxiv integration;
+- optional OpenAlex enrichment with citations, topics, and open-access PDFs;
+- persistent `last_checked_at` checkpoints for watch queries;
+- `--since YYYY-MM-DD` and `--days N` time windows;
+- native date filters for PubMed, arXiv, bioRxiv, and medRxiv;
+- conservative checkpoint handling after partial or truncated runs.
 
 ---
 

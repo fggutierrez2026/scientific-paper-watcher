@@ -4,6 +4,7 @@ import logging
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime
 
 import requests
 from tenacity import (
@@ -24,6 +25,7 @@ from paper_watcher.exceptions import (
     ServiceUnavailableError,
 )
 from paper_watcher.models import Paper
+from paper_watcher.time_window import format_arxiv_date, validate_window
 
 ARXIV_RETRYABLE_EXCEPTIONS = (
     RequestTimeoutError,
@@ -353,11 +355,21 @@ def _get_arxiv(
 def search_arxiv(
     query: str,
     max_results: int = 5,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> ArxivSearchResult:
     cleaned_query = query.strip()
+    since, until = validate_window(since, until)
+
+    search_query = cleaned_query
+    if since is not None and until is not None:
+        search_query = (
+            f"({cleaned_query}) AND submittedDate:"
+            f"[{format_arxiv_date(since)} TO {format_arxiv_date(until)}]"
+        )
 
     params: dict[str, str | int] = {
-        "search_query": cleaned_query,
+        "search_query": search_query,
         "start": 0,
         "max_results": max_results,
         "sortBy": "submittedDate",
@@ -391,4 +403,3 @@ def search_arxiv(
         total_count=total_count,
         papers=papers,
     )
-

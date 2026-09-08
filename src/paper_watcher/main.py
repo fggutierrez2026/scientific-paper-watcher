@@ -1,5 +1,7 @@
 import argparse
 import logging
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from paper_watcher import __version__
 from paper_watcher.config import load_config
@@ -29,12 +31,36 @@ from paper_watcher.storage.sqlite import (
     get_all_paper_report_rows,
     initialize_database,
     insert_papers,
-    list_watch_queries,
     list_watch_query_rows,
     remove_watch_query,
+    update_watch_query_last_checked,
+)
+from paper_watcher.time_window import (
+    as_utc,
+    parse_checkpoint,
+    parse_since_date,
+    since_days,
+    validate_window,
 )
 
 logger = logging.getLogger(__name__)
+
+SOURCE_COUNT = 4
+
+
+@dataclass(frozen=True)
+class RunResult:
+    completed_sources: int
+    total_sources: int = SOURCE_COUNT
+    truncated_sources: tuple[str, ...] = ()
+
+    @property
+    def all_sources_completed(self) -> bool:
+        return self.completed_sources == self.total_sources
+
+    @property
+    def checkpoint_can_advance(self) -> bool:
+        return self.all_sources_completed and not self.truncated_sources
 
 def ensure_directories() -> None:
     """
@@ -112,6 +138,13 @@ def _non_empty_text(
 
     return cleaned
 
+
+def _since_date(value: str) -> datetime:
+    try:
+        return parse_since_date(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paper-watcher",
@@ -167,6 +200,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    time_group = run_parser.add_mutually_exclusive_group()
+    time_group.add_argument(
+        "--since",
+        type=_since_date,
+        metavar="YYYY-MM-DD",
+        help="Retrieve papers added on or after this UTC date.",
+    )
+    time_group.add_argument(
+        "--days",
+        type=_positive_int,
+        metavar="N",
+        help="Retrieve papers added during the last N days.",
+    )
+
     add_query_parser = subparsers.add_parser(
         "add-query",
         help="Store a query to watch.",
@@ -216,13 +263,16 @@ def run(
     query: str,
     max_results: int,
     use_openalex: bool | None = None,
-) -> None:
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> RunResult:
     """
     Run entry point for the application.
     """
     setup_logging()
 
     config = load_config()
+    since, until = validate_window(since, until)
 
     common_query = normalize_common_query(
         query
@@ -242,6 +292,7 @@ def run(
     source_warnings: list[str] = []
 
     successful_sources = 0
+    truncated_sources: list[str] = []
 
     initialize_database(
         config.database_path
@@ -266,6 +317,10 @@ def run(
         f"arXiv  : {arxiv_query}"
     )
 
+    if since is not None and until is not None:
+        print(f"Since  : {since.astimezone(UTC).isoformat(timespec='seconds')}")
+        print(f"Until  : {until.astimezone(UTC).isoformat(timespec='seconds')}")
+
     print()
     print("=" * 70)
     print("PUBMED")
@@ -284,11 +339,16 @@ def run(
         pubmed_result = search_pubmed(
             pubmed_query,
             max_results=max_results,
+            since=since,
+            until=until,
         )
 
         pubmed_papers = fetch_pubmed_articles(
             pubmed_result.pmids
         )
+
+        if since is not None and pubmed_result.total_count > len(pubmed_result.pmids):
+            truncated_sources.append("PubMed")
 
         print(
             f"Total PubMed results: "
@@ -328,11 +388,16 @@ def run(
         arxiv_result = search_arxiv(
             query=arxiv_query,
             max_results=max_results,
+            since=since,
+            until=until,
         )
 
         arxiv_papers = (
             arxiv_result.papers
         )
+
+        if since is not None and arxiv_result.total_count > len(arxiv_papers):
+            truncated_sources.append("arXiv")
 
         print(
             f"Total arXiv results: "
@@ -384,9 +449,14 @@ def run(
                 max_results=max_results,
                 server=server,
                 interval=config.biorxiv_interval,
+                since=since,
+                until=until,
             )
 
             preprint_papers[server].extend(result.papers)
+
+            if since is not None and not result.exhaustive:
+                truncated_sources.append(display_name)
 
             print(
                 f"Preprints matched: "
@@ -413,6 +483,17 @@ def run(
             "All paper sources failed: "
             + " | ".join(source_warnings)
         )
+
+    if truncated_sources:
+        warning = (
+            "Incremental window truncated for "
+            f"{', '.join(truncated_sources)}; increase --max-results "
+            "before advancing the checkpoint."
+        )
+        logger.warning(warning)
+        source_warnings.append(warning)
+        print()
+        print(warning)
 
     all_papers = (
         pubmed_papers
@@ -542,7 +623,7 @@ def run(
 
     print(
         f"Sources completed: "
-        f"{successful_sources}/4"
+        f"{successful_sources}/{SOURCE_COUNT}"
     )
 
     print()
@@ -556,6 +637,11 @@ def run(
 
     print(f"Request timeout: "
           f"{config.request_timeout} seconds")
+
+    return RunResult(
+        completed_sources=successful_sources,
+        truncated_sources=tuple(truncated_sources),
+    )
 
 def add_query_command(
     query: str,
@@ -617,17 +703,17 @@ def list_queries_command() -> None:
     print()
 
     print(
-        f"{'ID':<5} Query"
+        f"{'ID':<5} {'Last checked (UTC)':<27} Query"
     )
 
     print(
-        f"{'--':<5} "
-        f"{'-' * 40}"
+        f"{'--':<5} {'-' * 27} {'-' * 40}"
     )
 
     for row in query_rows:
         print(
             f"{row['id']:<5} "
+            f"{(row['last_checked_at'] or 'never'):<27} "
             f"{row['query']}"
         )
 
@@ -668,7 +754,16 @@ def run_command(
     query: str | None,
     max_results: int,
     use_openalex: bool | None = None,
+    since: datetime | None = None,
+    days: int | None = None,
 ) -> None:
+    checked_at = datetime.now(UTC)
+    explicit_since = since_days(days, checked_at) if days is not None else since
+    if explicit_since is not None:
+        explicit_since = as_utc(explicit_since)
+    if explicit_since is not None and explicit_since > checked_at:
+        raise PaperWatcherError("--since must not be in the future")
+
     # Modo 1:
     # El usuario proporcionó una consulta concreta.
     if query is not None:
@@ -676,6 +771,8 @@ def run_command(
             query=query,
             max_results=max_results,
             use_openalex=use_openalex,
+            since=explicit_since,
+            until=checked_at if explicit_since is not None else None,
         )
         return
 
@@ -691,11 +788,11 @@ def run_command(
     with database_connection(
         config.database_path
     ) as connection:
-        queries = list_watch_queries(
+        query_rows = list_watch_query_rows(
             connection
         )
 
-    if not queries:
+    if not query_rows:
         print("No stored queries.")
         return
 
@@ -705,20 +802,28 @@ def run_command(
     print("=" * 70)
 
     print(
-        f"Queries to run: {len(queries)}"
+        f"Queries to run: {len(query_rows)}"
     )
 
     successful_queries = 0
     failed_queries = 0
 
-    for index, stored_query in enumerate(
-        queries,
+    for index, query_row in enumerate(
+        query_rows,
         start=1,
     ):
+        stored_query = str(query_row["query"])
+        effective_since = explicit_since
+        if effective_since is None and query_row["last_checked_at"]:
+            try:
+                effective_since = parse_checkpoint(query_row["last_checked_at"])
+            except ValueError as exc:
+                raise PaperWatcherError(str(exc)) from exc
+
         print()
         print("=" * 70)
         print(
-            f"QUERY {index}/{len(queries)}"
+            f"QUERY {index}/{len(query_rows)}"
         )
         print("=" * 70)
 
@@ -727,13 +832,28 @@ def run_command(
         )
 
         try:
-            run(
+            run_result = run(
                 query=stored_query,
                 max_results=max_results,
                 use_openalex=use_openalex,
+                since=effective_since,
+                until=checked_at if effective_since is not None else None,
             )
 
             successful_queries += 1
+
+            if run_result.checkpoint_can_advance:
+                with database_connection(config.database_path) as connection:
+                    update_watch_query_last_checked(
+                        connection,
+                        int(query_row["id"]),
+                        checked_at,
+                    )
+            else:
+                print(
+                    "Checkpoint not advanced because a source failed or the "
+                    "result window was truncated."
+                )
 
         except PaperWatcherError as exc:
             failed_queries += 1
@@ -760,7 +880,7 @@ def run_command(
     print("=" * 70)
 
     print(
-        f"Queries processed: {len(queries)}"
+        f"Queries processed: {len(query_rows)}"
     )
 
     print(
@@ -815,6 +935,8 @@ def main(
                 query=args.query,
                 max_results=args.max_results,
                 use_openalex=args.openalex,
+                since=args.since,
+                days=args.days,
             )
 
             return 0

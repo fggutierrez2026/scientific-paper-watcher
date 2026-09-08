@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -76,6 +77,25 @@ class TestPubmedSource:
         assert call_params["email"] == "test@example.com"
         assert call_params["retmax"] == 2
 
+    @patch("paper_watcher.sources.pubmed._get_pubmed")
+    def test_search_pubmed_adds_entrez_date_window(self, mock_get_pubmed):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "esearchresult": {"count": "0", "idlist": []}
+        }
+        mock_get_pubmed.return_value = mock_response
+
+        search_pubmed(
+            "protein design",
+            since=datetime(2026, 8, 1, 12, tzinfo=UTC),
+            until=datetime(2026, 8, 9, 18, tzinfo=UTC),
+        )
+
+        params = mock_get_pubmed.call_args.args[1]
+        assert params["datetype"] == "edat"
+        assert params["mindate"] == "2026/08/01"
+        assert params["maxdate"] == "2026/08/09"
+
     def test_fetch_pubmed_articles_empty(self):
         assert fetch_pubmed_articles([]) == []
 
@@ -142,6 +162,27 @@ class TestArxivSource:
         call_params = mock_get_arxiv.call_args[0][0]
         assert call_params["search_query"] == complex_query
         assert call_params["max_results"] == 5
+
+    @patch("paper_watcher.sources.arxiv._get_arxiv")
+    def test_search_arxiv_adds_submitted_date_window(
+        self,
+        mock_get_arxiv,
+        sample_arxiv_xml: bytes,
+    ):
+        mock_resp = MagicMock(content=sample_arxiv_xml)
+        mock_get_arxiv.return_value = mock_resp
+
+        search_arxiv(
+            "all:biosensor",
+            since=datetime(2026, 8, 1, 12, 30, tzinfo=UTC),
+            until=datetime(2026, 8, 9, 18, 45, tzinfo=UTC),
+        )
+
+        params = mock_get_arxiv.call_args.args[0]
+        assert params["search_query"] == (
+            "(all:biosensor) AND "
+            "submittedDate:[202608011230 TO 202608091845]"
+        )
 
 
 class TestBiorxivSource:
@@ -253,6 +294,58 @@ class TestBiorxivSource:
         mock_get.assert_called_once_with(
             "https://api.biorxiv.org/details/medrxiv/7d/0"
         )
+
+    @patch("paper_watcher.sources.biorxiv._get_biorxiv")
+    def test_search_biorxiv_uses_explicit_date_window(
+        self,
+        mock_get,
+        sample_biorxiv_payload: dict,
+    ):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = sample_biorxiv_payload
+        mock_get.return_value = mock_resp
+
+        search_biorxiv(
+            query="biosensor",
+            server="biorxiv",
+            interval="30d",
+            since=datetime(2026, 8, 1, 12, tzinfo=UTC),
+            until=datetime(2026, 8, 9, 18, tzinfo=UTC),
+        )
+
+        mock_get.assert_called_once_with(
+            "https://api.biorxiv.org/details/"
+            "biorxiv/2026-08-01/2026-08-09/0"
+        )
+
+    @patch("paper_watcher.sources.biorxiv._get_biorxiv")
+    def test_search_biorxiv_marks_limited_window_as_not_exhaustive(
+        self,
+        mock_get,
+        sample_biorxiv_payload: dict,
+    ):
+        item = sample_biorxiv_payload["collection"][0]
+        payload = {
+            "messages": [{"status": "ok", "count": 30, "total_posts": 60}],
+            "collection": [
+                {**item, "doi": f"10.1101/2026.08.10.{index:06d}"}
+                for index in range(30)
+            ],
+        }
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = payload
+        mock_get.return_value = mock_resp
+
+        result = search_biorxiv(
+            query="biosensor",
+            max_results=1,
+            server="biorxiv",
+            since=datetime(2026, 8, 1, tzinfo=UTC),
+            until=datetime(2026, 8, 9, tzinfo=UTC),
+        )
+
+        assert result.exhaustive is False
+
 
     def test_search_rejects_unknown_server(self):
         with pytest.raises(ValueError, match="Unsupported preprint server"):

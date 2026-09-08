@@ -1,6 +1,6 @@
 # Plan de Trabajo y Evolución - Scientific Paper Watcher
 
-Plan de desarrollo incremental para evolucionar el repositorio desde la versión actual (`0.3.0`) hacia una plataforma robusta y automatizada de inteligencia científica.
+Plan de desarrollo incremental para evolucionar el repositorio desde la versión actual (`0.4.0`) hacia una plataforma robusta y automatizada de inteligencia científica.
 
 > **Instrucciones de uso:**
 > Cada tarea completada se marcará como realizada sustituyendo `- [ ]` por `- [x]`.
@@ -9,7 +9,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 
 ## Métricas de Progreso Global
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 1:** 2 / 4 tareas principales completadas
+- **Fase 1:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 2:** 0 / 3 tareas principales completadas
 - **Fase 3:** 0 / 3 tareas principales completadas
 - **Fase 4:** 0 / 3 tareas principales completadas
@@ -65,10 +65,10 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
   - [x] Diseñar adaptador para OpenAlex (`sources/openalex.py`) para enriquecer papers con citas, tópicos y enlaces open-access a PDFs completos.
   - [x] Configurar llamadas opcionales controladas por flags o variables de entorno.
 
-- [ ] **Tarea 1.4: Búsquedas incrementales y ventanas de tiempo**
-  - [ ] Agregar columna `last_checked_at` en la tabla `watch_queries`.
-  - [ ] Añadir flag de CLI: `--since` / `--days N` en el comando `paper-watcher run`.
-  - [ ] Modificar adaptadores de fuentes para filtrar por rango de fechas (ej. `mindate`/`maxdate` en PubMed, `submittedDate` en arXiv) y traer solo novedades efectivas.
+- [x] **Tarea 1.4: Búsquedas incrementales y ventanas de tiempo**
+  - [x] Agregar columna `last_checked_at` en la tabla `watch_queries`.
+  - [x] Añadir flag de CLI: `--since` / `--days N` en el comando `paper-watcher run`.
+  - [x] Modificar adaptadores de fuentes para filtrar por rango de fechas (ej. `mindate`/`maxdate` en PubMed, `submittedDate` en arXiv) y traer solo novedades efectivas.
 
 ---
 

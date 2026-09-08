@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from paper_watcher.models import Paper
@@ -14,6 +15,7 @@ from paper_watcher.storage.sqlite import (
     insert_papers,
     list_watch_queries,
     remove_watch_query,
+    update_watch_query_last_checked,
 )
 
 
@@ -54,6 +56,14 @@ class TestSqliteStorage:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE watch_queries (
+                id INTEGER PRIMARY KEY,
+                query TEXT NOT NULL
+            )
+            """
+        )
         connection.commit()
         connection.close()
 
@@ -63,8 +73,33 @@ class TestSqliteStorage:
         columns = {
             row[1] for row in connection.execute("PRAGMA table_info(papers)")
         }
-        connection.close()
         assert {"openalex_id", "citation_count", "topics", "pdf_url"} <= columns
+        watch_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(watch_queries)")
+        }
+        assert "last_checked_at" in watch_columns
+        connection.close()
+
+    def test_watch_query_checkpoint_lifecycle(
+        self,
+        db_connection: sqlite3.Connection,
+    ):
+        query_id = add_watch_query(db_connection, "protein design")
+        assert query_id is not None
+        checked_at = datetime(2026, 9, 8, 15, 30, tzinfo=UTC)
+
+        assert update_watch_query_last_checked(
+            db_connection,
+            query_id,
+            checked_at,
+        )
+        rows = db_connection.execute(
+            "SELECT last_checked_at FROM watch_queries WHERE id = ?",
+            (query_id,),
+        ).fetchone()
+
+        assert rows["last_checked_at"] == "2026-09-08T15:30:00+00:00"
 
     def test_insert_single_paper(self, db_connection: sqlite3.Connection, sample_paper: Paper):
         paper_id = insert_paper(db_connection, sample_paper)

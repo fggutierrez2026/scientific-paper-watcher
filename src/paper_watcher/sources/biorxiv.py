@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -25,6 +26,7 @@ from paper_watcher.exceptions import (
 )
 from paper_watcher.models import Paper
 from paper_watcher.query_language import matches_query
+from paper_watcher.time_window import format_biorxiv_date, validate_window
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ class BiorxivSearchResult:
     total_found: int
     query: str
     server: str
+    exhaustive: bool = True
 
 
 def _get_biorxiv(
@@ -182,6 +185,8 @@ def search_biorxiv(
     server: str | None = None,
     interval: str | None = None,
     max_pages: int = 5,
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> BiorxivSearchResult:
     """
     Searches bioRxiv/medRxiv for preprints in the specified interval matching `query`.
@@ -191,6 +196,11 @@ def search_biorxiv(
 
     server_to_use = (server or "biorxiv").lower()
     interval_to_use = interval or config.biorxiv_interval or "30d"
+    since, until = validate_window(since, until)
+    if since is not None and until is not None:
+        interval_to_use = (
+            f"{format_biorxiv_date(since)}/{format_biorxiv_date(until)}"
+        )
 
     if server_to_use not in BIORXIV_SERVERS:
         raise ValueError(
@@ -210,6 +220,7 @@ def search_biorxiv(
     matching_papers: list[Paper] = []
     cursor = 0
     pages_fetched = 0
+    exhaustive = False
 
     while len(matching_papers) < max_results and pages_fetched < max_pages:
         url = f"{BIORXIV_BASE_URL}/{server_to_use}/{interval_to_use}/{cursor}"
@@ -225,6 +236,7 @@ def search_biorxiv(
 
         collection = payload.get("collection", [])
         if not collection:
+            exhaustive = True
             break
 
         papers = parse_biorxiv_json(
@@ -237,7 +249,22 @@ def search_biorxiv(
         pages_fetched += 1
         cursor += len(collection)
 
+        total_posts = None
+        messages = payload.get("messages")
+        if messages and isinstance(messages, list) and isinstance(messages[0], dict):
+            raw_total_posts = messages[0].get("total_posts")
+            if isinstance(raw_total_posts, (str, int)):
+                try:
+                    total_posts = int(raw_total_posts)
+                except ValueError:
+                    total_posts = None
+
+        if total_posts is not None and cursor >= total_posts:
+            exhaustive = True
+            break
+
         if len(collection) < 30:  # bioRxiv default page size is typically 30 or 100
+            exhaustive = True
             break
 
         # Polite backoff between paginated calls
@@ -258,4 +285,5 @@ def search_biorxiv(
         total_found=len(limited_papers),
         query=cleaned_query,
         server=server_to_use,
+        exhaustive=exhaustive,
     )
