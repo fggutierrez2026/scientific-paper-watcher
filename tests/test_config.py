@@ -15,6 +15,7 @@ def test_default_config(tmp_path):
         assert cfg.max_retries == 3
         assert cfg.ncbi_email == ""
         assert cfg.ncbi_api_key is None
+        assert cfg.biorxiv_interval == "30d"
 
 
 def test_config_with_custom_env():
@@ -25,6 +26,7 @@ def test_config_with_custom_env():
         "MAX_RETRIES": "5",
         "NCBI_EMAIL": "researcher@example.org",
         "NCBI_API_KEY": "my_api_key_123",
+        "BIORXIV_INTERVAL": "14d",
     }
     with patch.dict(os.environ, custom_env, clear=True):
         cfg = load_config()
@@ -34,6 +36,7 @@ def test_config_with_custom_env():
         assert cfg.max_retries == 5
         assert cfg.ncbi_email == "researcher@example.org"
         assert cfg.ncbi_api_key == "my_api_key_123"
+        assert cfg.biorxiv_interval == "14d"
 
 
 def test_config_with_legacy_aliases():
@@ -49,4 +52,3 @@ def test_config_with_legacy_aliases():
         assert str(cfg.report_dir).endswith("legacy_reports")
         assert cfg.ncbi_email == "legacy@example.org"
         assert cfg.ncbi_api_key == "legacy_key"
-

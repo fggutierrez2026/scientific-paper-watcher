@@ -217,3 +217,43 @@ class TestBiorxivSource:
         assert result.server == "biorxiv"
         assert len(result.papers) == 1
         assert result.papers[0].title == "Machine learning for allosteric biosensor engineering"
+        mock_get.assert_called_once_with(
+            "https://api.biorxiv.org/details/biorxiv/30d/0"
+        )
+
+    @patch("paper_watcher.sources.biorxiv._get_biorxiv")
+    def test_search_medrxiv_calls_its_api_and_maps_source(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "messages": [{"status": "ok", "count": 1, "total_posts": 1}],
+            "collection": [
+                {
+                    "doi": "10.1101/2026.08.12.111111",
+                    "title": "Clinical evaluation of a wearable biosensor",
+                    "authors": "Ada Lovelace; Grace Hopper",
+                    "date": "2026-08-12",
+                    "version": "2",
+                    "category": "infectious diseases",
+                    "abstract": "A biosensor study in a clinical cohort.",
+                }
+            ],
+        }
+        mock_get.return_value = mock_resp
+
+        result = search_biorxiv(
+            query="biosensor",
+            max_results=5,
+            server="medrxiv",
+            interval="7d",
+        )
+
+        assert result.server == "medrxiv"
+        assert len(result.papers) == 1
+        assert result.papers[0].source == "medrxiv"
+        mock_get.assert_called_once_with(
+            "https://api.biorxiv.org/details/medrxiv/7d/0"
+        )
+
+    def test_search_rejects_unknown_server(self):
+        with pytest.raises(ValueError, match="Unsupported preprint server"):
+            search_biorxiv("biosensor", server="unknown")

@@ -1,6 +1,6 @@
 # Scientific Paper Watcher
 
-Scientific Paper Watcher is a Python command-line application for monitoring scientific literature from **PubMed** and **arXiv**.
+Scientific Paper Watcher is a Python command-line application for monitoring scientific literature from **PubMed**, **arXiv**, **bioRxiv**, and **medRxiv**.
 
 It can search scientific papers, normalize results into a common model, store them in SQLite, detect new and known papers, preserve query-to-paper provenance, manage persistent watch queries, execute batch searches, and generate Markdown reports.
 
@@ -14,8 +14,10 @@ It can search scientific papers, normalize results into a common model, store th
 
 - PubMed
 - arXiv
+- bioRxiv
+- medRxiv
 
-Results from both sources are normalized into a common `Paper` model before being stored.
+Results from all four sources are normalized into a common `Paper` model before being stored.
 
 ### Persistent storage
 
@@ -165,8 +167,7 @@ MAX_RETRIES=3
 NCBI_EMAIL=your-email@example.com
 NCBI_API_KEY=your-optional-ncbi-api-key
 
-# bioRxiv / medRxiv settings
-BIORXIV_SERVER=biorxiv
+# bioRxiv / medRxiv settings (both sources run independently)
 BIORXIV_INTERVAL=30d
 ```
 

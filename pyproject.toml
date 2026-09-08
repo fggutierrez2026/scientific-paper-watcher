@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "scientific-paper-watcher"
 dynamic = ["version"]
-description = "Search and collect scientific papers from PubMed and arXiv."
+description = "Search papers from PubMed, arXiv, bioRxiv, and medRxiv."
 readme = "README.md"
 requires-python = ">=3.12"
 

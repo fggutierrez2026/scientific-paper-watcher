@@ -29,6 +29,7 @@ from paper_watcher.query_language import matches_query
 logger = logging.getLogger(__name__)
 
 BIORXIV_BASE_URL = "https://api.biorxiv.org/details"
+BIORXIV_SERVERS = ("biorxiv", "medrxiv")
 
 BIORXIV_RETRYABLE_EXCEPTIONS = (
     RequestTimeoutError,
@@ -70,42 +71,45 @@ def _get_biorxiv(
                 )
             except requests.exceptions.Timeout as exc:
                 raise RequestTimeoutError(
-                    f"bioRxiv request timed out after {config.request_timeout}s"
+                    "bioRxiv/medRxiv request timed out after "
+                    f"{config.request_timeout}s"
                 ) from exc
             except requests.exceptions.ConnectionError as exc:
                 raise NetworkError(
-                    f"bioRxiv network connection failed: {exc}"
+                    f"bioRxiv/medRxiv network connection failed: {exc}"
                 ) from exc
             except requests.exceptions.RequestException as exc:
                 raise APIError(
-                    f"bioRxiv request failed: {exc}"
+                    f"bioRxiv/medRxiv request failed: {exc}"
                 ) from exc
 
             status = response.status_code
 
             if status == 429:
                 raise RateLimitError(
-                    "bioRxiv rate limit reached (HTTP 429)"
+                    "bioRxiv/medRxiv rate limit reached (HTTP 429)"
                 )
 
             if 500 <= status < 600:
                 raise ServiceUnavailableError(
-                    f"bioRxiv server error: HTTP {status}"
+                    f"bioRxiv/medRxiv server error: HTTP {status}"
                 )
 
             if not response.ok:
                 raise APIError(
-                    f"bioRxiv API returned HTTP {status}: {response.text[:200]}"
+                    "bioRxiv/medRxiv API returned "
+                    f"HTTP {status}: {response.text[:200]}"
                 )
 
             return response
 
-    raise APIError("bioRxiv request failed after all retries")
+    raise APIError("bioRxiv/medRxiv request failed after all retries")
 
 
 def parse_biorxiv_json(
     data: dict[str, Any],
     query: str | None = None,
+    server: str | None = None,
 ) -> list[Paper]:
     """
     Parses a bioRxiv API response dictionary and returns a list of Paper objects.
@@ -119,7 +123,7 @@ def parse_biorxiv_json(
 
     if "collection" not in data or not isinstance(data["collection"], list):
         raise InvalidResponseError(
-            "Expected 'collection' list in bioRxiv API response"
+            "Expected 'collection' list in bioRxiv/medRxiv API response"
         )
 
     collection = data["collection"]
@@ -139,10 +143,10 @@ def parse_biorxiv_json(
 
         date = item.get("date")
         category = item.get("category")
-        server = item.get("server", "biorxiv")
+        paper_server = item.get("server") or server or "biorxiv"
         version = item.get("version", "1")
 
-        external_id = doi or f"{server}_{date}_{version}"
+        external_id = doi or f"{paper_server}_{date}_{version}"
         url = f"https://doi.org/{doi}" if doi else f"https://www.biorxiv.org/content/{doi}v{version}"
 
         if query:
@@ -155,7 +159,7 @@ def parse_biorxiv_json(
                 continue
 
         paper = Paper(
-            source=server,
+            source=paper_server,
             external_id=external_id,
             title=title,
             authors=authors,
@@ -185,8 +189,14 @@ def search_biorxiv(
     """
     config = load_config()
 
-    server_to_use = server or config.biorxiv_server or "biorxiv"
+    server_to_use = (server or "biorxiv").lower()
     interval_to_use = interval or config.biorxiv_interval or "30d"
+
+    if server_to_use not in BIORXIV_SERVERS:
+        raise ValueError(
+            f"Unsupported preprint server: {server_to_use}. "
+            f"Expected one of: {', '.join(BIORXIV_SERVERS)}"
+        )
 
     cleaned_query = query.strip()
     logger.info(
@@ -210,14 +220,18 @@ def search_biorxiv(
             payload = response.json()
         except ValueError as exc:
             raise InvalidResponseError(
-                f"bioRxiv response was not valid JSON: {exc}"
+                f"{server_to_use} response was not valid JSON: {exc}"
             ) from exc
 
         collection = payload.get("collection", [])
         if not collection:
             break
 
-        papers = parse_biorxiv_json(payload, query=cleaned_query)
+        papers = parse_biorxiv_json(
+            payload,
+            query=cleaned_query,
+            server=server_to_use,
+        )
         matching_papers.extend(papers)
 
         pages_fetched += 1
@@ -233,7 +247,8 @@ def search_biorxiv(
     limited_papers = matching_papers[:max_results]
 
     logger.info(
-        "bioRxiv search returned %d matching preprints (after scanning %d pages)",
+        "%s search returned %d matching preprints (after scanning %d pages)",
+        server_to_use,
         len(limited_papers),
         pages_fetched,
     )

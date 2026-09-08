@@ -16,7 +16,7 @@ from paper_watcher.reports.markdown import (
     write_markdown_report,
 )
 from paper_watcher.sources.arxiv import search_arxiv
-from paper_watcher.sources.biorxiv import search_biorxiv
+from paper_watcher.sources.biorxiv import BIORXIV_SERVERS, search_biorxiv
 from paper_watcher.sources.pubmed import (
     fetch_pubmed_articles,
     search_pubmed,
@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="paper-watcher",
         description=(
             "Search scientific papers from "
-            "PubMed and arXiv."
+            "PubMed, arXiv, bioRxiv, and medRxiv."
         ),
     )
 
@@ -351,49 +351,50 @@ def run(
         print()
         print(warning)
 
-    print()
-    print("=" * 70)
-    print("SOURCE: bioRxiv")
-    print("=" * 70)
-
     biorxiv_papers: list[Paper] = []
+    medrxiv_papers: list[Paper] = []
+    preprint_papers = {
+        "biorxiv": biorxiv_papers,
+        "medrxiv": medrxiv_papers,
+    }
 
-    try:
-        biorxiv_result = search_biorxiv(
-            common_query,
-            max_results=max_results,
-            server=config.biorxiv_server,
-            interval=config.biorxiv_interval,
-        )
-
-        biorxiv_papers = (
-            biorxiv_result.papers
-        )
-
-        print(
-            f"Preprints matched: "
-            f"{len(biorxiv_papers)}"
-        )
-        print()
-
-        for paper in biorxiv_papers:
-            print_paper(paper)
-
-        successful_sources += 1
-
-    except PaperWatcherError as exc:
-        warning = (
-            f"bioRxiv unavailable: {exc}"
-        )
-
-        logger.warning(warning)
-
-        source_warnings.append(
-            warning
-        )
+    for server in BIORXIV_SERVERS:
+        display_name = "bioRxiv" if server == "biorxiv" else "medRxiv"
 
         print()
-        print(warning)
+        print("=" * 70)
+        print(f"SOURCE: {display_name}")
+        print("=" * 70)
+
+        try:
+            result = search_biorxiv(
+                common_query,
+                max_results=max_results,
+                server=server,
+                interval=config.biorxiv_interval,
+            )
+
+            preprint_papers[server].extend(result.papers)
+
+            print(
+                f"Preprints matched: "
+                f"{len(result.papers)}"
+            )
+            print()
+
+            for paper in result.papers:
+                print_paper(paper)
+
+            successful_sources += 1
+
+        except PaperWatcherError as exc:
+            warning = f"{display_name} unavailable: {exc}"
+
+            logger.warning(warning)
+            source_warnings.append(warning)
+
+            print()
+            print(warning)
 
     if successful_sources == 0:
         raise PaperWatcherError(
@@ -405,6 +406,7 @@ def run(
         pubmed_papers
         + arxiv_papers
         + biorxiv_papers
+        + medrxiv_papers
     )
 
     print()
@@ -425,6 +427,11 @@ def run(
     print(
         f"bioRxiv papers: "
         f"{len(biorxiv_papers)}"
+    )
+
+    print(
+        f"medRxiv papers: "
+        f"{len(medrxiv_papers)}"
     )
 
     print(
@@ -489,7 +496,7 @@ def run(
 
     print(
         f"Sources completed: "
-        f"{successful_sources}/3"
+        f"{successful_sources}/4"
     )
 
     print()
