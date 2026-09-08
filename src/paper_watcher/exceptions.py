@@ -2,6 +2,10 @@ class PaperWatcherError(Exception):
     """Base exception for Scientific Paper Watcher."""
 
 
+class ConfigurationError(PaperWatcherError):
+    """Raised when application or external source configuration is invalid."""
+
+
 class APIError(PaperWatcherError):
     """Base exception for external API errors."""
 

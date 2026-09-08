@@ -173,11 +173,35 @@ BIORXIV_INTERVAL=30d
 # Optional OpenAlex enrichment
 OPENALEX_ENABLED=false
 OPENALEX_API_KEY=your-optional-openalex-api-key
+
+# Enabled sources (new adapters remain opt-in until implemented)
+PAPER_SOURCES=pubmed,arxiv,biorxiv,medrxiv
+PATENT_SOURCES=
+
+# Additional scholarly API access
+SEMANTIC_SCHOLAR_API_KEY=
+CROSSREF_EMAIL=your-email@example.com
+CORE_API_KEY=
+UNPAYWALL_EMAIL=your-email@example.com
+LENS_API_TOKEN=
+
+# Patent API access
+USPTO_API_KEY=
+EPO_CONSUMER_KEY=
+EPO_CONSUMER_SECRET=
+WIPO_USERNAME=
+WIPO_PASSWORD=
 ```
 
 *(Note: legacy aliases `DATABASE_PATH`, `REPORT_DIR`, and `PUBMED_EMAIL` are also supported for backwards compatibility).*
 
 Do not commit secrets or personal configuration.
+
+The source lists are comma-separated. Missing credentials are checked only when
+their source is activated, so a restricted API does not prevent independent
+public sources from being configured. See the
+[external API access matrix](docs/api-access.md) for accepted source names,
+registration links, access restrictions, and secret-handling rules.
 
 Recommended `.gitignore` entries:
 
