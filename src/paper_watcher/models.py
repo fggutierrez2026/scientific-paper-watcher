@@ -47,3 +47,44 @@ class Paper:
         norm_sources = {s.lower() for s in self.sources}
         preprints = {"arxiv", "biorxiv", "medrxiv"}
         return bool(norm_sources.intersection(preprints)) and "pubmed" in norm_sources
+
+
+@dataclass(frozen=True)
+class Patent:
+    source: str
+    external_id: str
+    publication_number: str | None
+    application_number: str | None
+    jurisdiction: str
+    title: str
+    abstract: str | None
+    inventors: list[str]
+    applicants: list[str]
+    priority_date: str | None
+    publication_date: str | None
+    cpc_codes: list[str]
+    ipc_codes: list[str]
+    family_id: str | None
+    citations: list[str]
+    url: str | None
+    sources: list[str] = field(default_factory=list)
+    external_ids: dict[str, str] = field(default_factory=dict)
+    source_urls: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.publication_number and not self.application_number:
+            raise ValueError(
+                "Patent requires a publication number or an application number"
+            )
+        if not self.jurisdiction.strip():
+            raise ValueError("Patent jurisdiction cannot be empty")
+        if not self.sources and self.source:
+            object.__setattr__(self, "sources", [self.source])
+        if not self.external_ids and self.source and self.external_id:
+            object.__setattr__(self, "external_ids", {self.source: self.external_id})
+        if not self.source_urls and self.source and self.url:
+            object.__setattr__(self, "source_urls", {self.source: self.url})
+
+    @property
+    def is_cross_source(self) -> bool:
+        return len(set(self.sources)) > 1

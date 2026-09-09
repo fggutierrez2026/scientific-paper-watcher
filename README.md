@@ -24,9 +24,17 @@ Results from all four sources are normalized into a common `Paper` model before 
 - SQLite database.
 - Automatic database initialization.
 - Persistent papers across runs.
+- Canonical patent records ready for upcoming patent source adapters.
+- Patent families that link legal documents without collapsing them.
+- Multi-source patent provenance and verified paper-to-patent citation links.
 - Persistent watch queries.
 - Query-to-paper provenance.
 - Duplicate protection.
+
+Patent identity is based on the normalized jurisdiction and publication number.
+The application number is used only as a fallback when a publication identity is
+not yet available. Existing databases are upgraded additively during normal
+initialization; paper records and their provenance remain unchanged.
 
 ### Query management
 

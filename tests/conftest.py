@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from paper_watcher.models import Paper
+from paper_watcher.models import Paper, Patent
 from paper_watcher.storage.sqlite import initialize_database
 
 
@@ -40,6 +40,28 @@ def sample_arxiv_paper() -> Paper:
         pubmed_date=None,
         doi=None,
         url="https://arxiv.org/abs/2608.12345v1",
+    )
+
+
+@pytest.fixture
+def sample_patent() -> Patent:
+    return Patent(
+        source="lens",
+        external_id="lens-US-123456",
+        publication_number="US 2026/0123456 A1",
+        application_number="US 18/123456",
+        jurisdiction="US",
+        title="Engineered protein biosensor",
+        abstract="A biosensor based on an engineered binding protein.",
+        inventors=["Alice Smith", "Bob Jones"],
+        applicants=["Example Biotech Inc."],
+        priority_date="2025-02-01",
+        publication_date="2026-04-23",
+        cpc_codes=["C12Q1/6813"],
+        ipc_codes=["C12Q1/68"],
+        family_id="DOCDB-123456",
+        citations=["US20200123456A1"],
+        url="https://example.org/patents/US20260123456A1",
     )
 
 
@@ -130,4 +152,3 @@ def sample_arxiv_xml() -> bytes:
     <arxiv:journal_ref>Nature Chem 2026</arxiv:journal_ref>
   </entry>
 </feed>"""
-

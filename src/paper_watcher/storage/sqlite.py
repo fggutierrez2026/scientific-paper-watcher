@@ -8,9 +8,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from paper_watcher.models import Paper
+from paper_watcher.models import Paper, Patent
 from paper_watcher.normalization import (
     normalize_doi,
+    normalize_patent_jurisdiction,
+    normalize_patent_number,
     normalize_title,
 )
 
@@ -115,6 +117,126 @@ ON papers (
 );
 """
 
+PATENT_FAMILIES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS patent_families (
+    id INTEGER PRIMARY KEY,
+    family_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+PATENT_FAMILIES_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_patent_families_family_id
+ON patent_families (
+    family_id
+);
+"""
+
+PATENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS patents (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    jurisdiction TEXT NOT NULL,
+    publication_number TEXT,
+    application_number TEXT,
+    title TEXT NOT NULL,
+    abstract TEXT,
+    inventors TEXT NOT NULL DEFAULT '[]',
+    applicants TEXT NOT NULL DEFAULT '[]',
+    priority_date TEXT,
+    publication_date TEXT,
+    cpc_codes TEXT NOT NULL DEFAULT '[]',
+    ipc_codes TEXT NOT NULL DEFAULT '[]',
+    family_id INTEGER,
+    citations TEXT NOT NULL DEFAULT '[]',
+    url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (publication_number IS NOT NULL OR application_number IS NOT NULL),
+    FOREIGN KEY (family_id) REFERENCES patent_families(id) ON DELETE SET NULL
+);
+"""
+
+PATENTS_PUBLICATION_IDENTITY_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_patents_jurisdiction_publication
+ON patents (
+    jurisdiction,
+    publication_number
+)
+WHERE publication_number IS NOT NULL;
+"""
+
+PATENTS_APPLICATION_INDEX = """
+CREATE INDEX IF NOT EXISTS
+    ix_patents_jurisdiction_application
+ON patents (
+    jurisdiction,
+    application_number
+);
+"""
+
+PATENT_SOURCES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS patent_sources (
+    id INTEGER PRIMARY KEY,
+    patent_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    publication_number TEXT,
+    application_number TEXT,
+    url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (patent_id) REFERENCES patents(id) ON DELETE CASCADE
+);
+"""
+
+PATENT_SOURCES_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_patent_sources_source_external_id
+ON patent_sources (
+    source,
+    external_id
+);
+"""
+
+PATENT_QUERY_MATCHES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS patent_query_matches (
+    patent_id INTEGER NOT NULL,
+    query TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (patent_id, query),
+    FOREIGN KEY (patent_id) REFERENCES patents(id) ON DELETE CASCADE
+);
+"""
+
+PAPER_PATENT_LINKS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS paper_patent_links (
+    id INTEGER PRIMARY KEY,
+    paper_id INTEGER NOT NULL,
+    patent_id INTEGER NOT NULL,
+    relationship TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (paper_id) REFERENCES papers(id) ON DELETE CASCADE,
+    FOREIGN KEY (patent_id) REFERENCES patents(id) ON DELETE CASCADE
+);
+"""
+
+PAPER_PATENT_LINKS_UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS
+    ux_paper_patent_links_evidence
+ON paper_patent_links (
+    paper_id,
+    patent_id,
+    relationship,
+    source
+);
+"""
+
 @dataclass(frozen=True)
 class PaperReportRow:
     query: str | None
@@ -150,6 +272,27 @@ class InsertPapersResult:
             - self.inserted_count
             - self.merged_count
         )
+
+
+@dataclass
+class InsertPatentsResult:
+    processed_count: int
+    inserted_ids: list[int]
+    new_patents: list[Patent]
+    merged_ids: list[int] = field(default_factory=list)
+    merged_patents: list[Patent] = field(default_factory=list)
+
+    @property
+    def inserted_count(self) -> int:
+        return len(self.inserted_ids)
+
+    @property
+    def merged_count(self) -> int:
+        return len(self.merged_ids)
+
+    @property
+    def known_count(self) -> int:
+        return self.processed_count - self.inserted_count - self.merged_count
 
 @contextmanager
 def database_connection(
@@ -251,6 +394,17 @@ def initialize_database(
         connection.execute(
             PAPERS_DOI_INDEX
         )
+
+        connection.execute(PATENT_FAMILIES_SCHEMA)
+        connection.execute(PATENT_FAMILIES_UNIQUE_INDEX)
+        connection.execute(PATENTS_SCHEMA)
+        connection.execute(PATENTS_PUBLICATION_IDENTITY_INDEX)
+        connection.execute(PATENTS_APPLICATION_INDEX)
+        connection.execute(PATENT_SOURCES_SCHEMA)
+        connection.execute(PATENT_SOURCES_UNIQUE_INDEX)
+        connection.execute(PATENT_QUERY_MATCHES_SCHEMA)
+        connection.execute(PAPER_PATENT_LINKS_SCHEMA)
+        connection.execute(PAPER_PATENT_LINKS_UNIQUE_INDEX)
 
         connection.execute(
             """
@@ -981,3 +1135,425 @@ def get_all_paper_report_rows(
         )
         for row in rows
     ]
+
+
+def _get_or_create_patent_family(
+    connection: sqlite3.Connection,
+    family_id: str | None,
+) -> int | None:
+    if family_id is None or not family_id.strip():
+        return None
+
+    cleaned_family_id = family_id.strip()
+    connection.execute(
+        "INSERT OR IGNORE INTO patent_families (family_id) VALUES (?)",
+        (cleaned_family_id,),
+    )
+    row = connection.execute(
+        "SELECT id FROM patent_families WHERE family_id = ?",
+        (cleaned_family_id,),
+    ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def find_patent_id_by_source_identity(
+    connection: sqlite3.Connection,
+    source: str,
+    external_id: str,
+) -> int | None:
+    row = connection.execute(
+        """
+        SELECT patent_id
+        FROM patent_sources
+        WHERE source = ? AND external_id = ?
+        """,
+        (source, external_id),
+    ).fetchone()
+    if row is not None:
+        return int(row["patent_id"])
+
+    fallback = connection.execute(
+        """
+        SELECT id
+        FROM patents
+        WHERE source = ? AND external_id = ?
+        """,
+        (source, external_id),
+    ).fetchone()
+    return int(fallback["id"]) if fallback is not None else None
+
+
+def find_patent_id_by_identity(
+    connection: sqlite3.Connection,
+    patent: Patent,
+) -> int | None:
+    jurisdiction = normalize_patent_jurisdiction(patent.jurisdiction)
+    publication_number = normalize_patent_number(patent.publication_number)
+    application_number = normalize_patent_number(patent.application_number)
+
+    if publication_number is not None:
+        row = connection.execute(
+            """
+            SELECT id
+            FROM patents
+            WHERE jurisdiction = ? AND publication_number = ?
+            """,
+            (jurisdiction, publication_number),
+        ).fetchone()
+        if row is not None:
+            return int(row["id"])
+
+    if application_number is None:
+        return None
+
+    # Application numbers are a fallback only. Two records that already have
+    # different publication numbers remain distinct legal documents.
+    row = connection.execute(
+        """
+        SELECT id
+        FROM patents
+        WHERE jurisdiction = ?
+          AND application_number = ?
+          AND (? IS NULL OR publication_number IS NULL)
+        ORDER BY id
+        LIMIT 1
+        """,
+        (jurisdiction, application_number, publication_number),
+    ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def _record_patent_source(
+    connection: sqlite3.Connection,
+    patent_id: int,
+    patent: Patent,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO patent_sources (
+            patent_id,
+            source,
+            external_id,
+            publication_number,
+            application_number,
+            url
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, external_id) DO UPDATE SET
+            publication_number = COALESCE(
+                excluded.publication_number,
+                patent_sources.publication_number
+            ),
+            application_number = COALESCE(
+                excluded.application_number,
+                patent_sources.application_number
+            ),
+            url = COALESCE(excluded.url, patent_sources.url),
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            patent_id,
+            patent.source,
+            patent.external_id,
+            normalize_patent_number(patent.publication_number),
+            normalize_patent_number(patent.application_number),
+            patent.url,
+        ),
+    )
+
+
+def _merge_string_lists(current: str | None, incoming: list[str]) -> str:
+    existing = json.loads(current or "[]")
+    merged = list(existing)
+    seen = {str(value).casefold() for value in existing}
+    for value in incoming:
+        cleaned = value.strip()
+        if cleaned and cleaned.casefold() not in seen:
+            merged.append(cleaned)
+            seen.add(cleaned.casefold())
+    return json.dumps(merged, ensure_ascii=False)
+
+
+def _merge_patent_metadata(
+    connection: sqlite3.Connection,
+    patent_id: int,
+    incoming: Patent,
+) -> None:
+    current = connection.execute(
+        "SELECT * FROM patents WHERE id = ?",
+        (patent_id,),
+    ).fetchone()
+    if current is None:
+        return
+
+    publication_number = normalize_patent_number(incoming.publication_number)
+    application_number = normalize_patent_number(incoming.application_number)
+    family_key = _get_or_create_patent_family(connection, incoming.family_id)
+    updates: dict[str, object] = {}
+
+    for column, value in (
+        ("publication_number", publication_number),
+        ("application_number", application_number),
+        ("url", incoming.url),
+    ):
+        if not current[column] and value:
+            updates[column] = value
+
+    if incoming.abstract and (
+        not current["abstract"] or len(incoming.abstract) > len(current["abstract"])
+    ):
+        updates["abstract"] = incoming.abstract
+
+    if incoming.priority_date and (
+        not current["priority_date"]
+        or incoming.priority_date < current["priority_date"]
+    ):
+        updates["priority_date"] = incoming.priority_date
+
+    if not current["publication_date"] and incoming.publication_date:
+        updates["publication_date"] = incoming.publication_date
+
+    if current["family_id"] is None and family_key is not None:
+        updates["family_id"] = family_key
+
+    for column, values in (
+        ("inventors", incoming.inventors),
+        ("applicants", incoming.applicants),
+        ("cpc_codes", incoming.cpc_codes),
+        ("ipc_codes", incoming.ipc_codes),
+        ("citations", incoming.citations),
+    ):
+        merged = _merge_string_lists(current[column], values)
+        if merged != current[column]:
+            updates[column] = merged
+
+    if updates:
+        updates["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        connection.execute(
+            f"UPDATE patents SET {assignments} WHERE id = ?",
+            (*updates.values(), patent_id),
+        )
+
+
+def _insert_new_patent(
+    connection: sqlite3.Connection,
+    patent: Patent,
+) -> int:
+    jurisdiction = normalize_patent_jurisdiction(patent.jurisdiction)
+    publication_number = normalize_patent_number(patent.publication_number)
+    application_number = normalize_patent_number(patent.application_number)
+    family_key = _get_or_create_patent_family(connection, patent.family_id)
+    cursor = connection.execute(
+        """
+        INSERT INTO patents (
+            source,
+            external_id,
+            jurisdiction,
+            publication_number,
+            application_number,
+            title,
+            abstract,
+            inventors,
+            applicants,
+            priority_date,
+            publication_date,
+            cpc_codes,
+            ipc_codes,
+            family_id,
+            citations,
+            url
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            patent.source,
+            patent.external_id,
+            jurisdiction,
+            publication_number,
+            application_number,
+            patent.title,
+            patent.abstract,
+            json.dumps(patent.inventors, ensure_ascii=False),
+            json.dumps(patent.applicants, ensure_ascii=False),
+            patent.priority_date,
+            patent.publication_date,
+            json.dumps(patent.cpc_codes, ensure_ascii=False),
+            json.dumps(patent.ipc_codes, ensure_ascii=False),
+            family_key,
+            json.dumps(patent.citations, ensure_ascii=False),
+            patent.url,
+        ),
+    )
+    patent_id = cursor.lastrowid
+    if patent_id is None:
+        raise RuntimeError("Patent insertion did not return an id")
+    _record_patent_source(connection, patent_id, patent)
+    return patent_id
+
+
+def record_patent_query_match(
+    connection: sqlite3.Connection,
+    patent_id: int,
+    query: str,
+) -> bool:
+    cleaned_query = query.strip()
+    if not cleaned_query:
+        raise ValueError("Query cannot be empty")
+    cursor = connection.execute(
+        """
+        INSERT OR IGNORE INTO patent_query_matches (patent_id, query)
+        VALUES (?, ?)
+        """,
+        (patent_id, cleaned_query),
+    )
+    return cursor.rowcount > 0
+
+
+def insert_patents(
+    connection: sqlite3.Connection,
+    patents: list[Patent],
+    query: str | None = None,
+) -> InsertPatentsResult:
+    inserted_ids: list[int] = []
+    new_patents: list[Patent] = []
+    merged_ids: list[int] = []
+    merged_patents: list[Patent] = []
+
+    for patent in patents:
+        source_id = find_patent_id_by_source_identity(
+            connection, patent.source, patent.external_id
+        )
+        if source_id is not None:
+            _merge_patent_metadata(connection, source_id, patent)
+            _record_patent_source(connection, source_id, patent)
+            if query is not None:
+                record_patent_query_match(connection, source_id, query)
+            continue
+
+        matched_id = find_patent_id_by_identity(connection, patent)
+        if matched_id is not None:
+            _merge_patent_metadata(connection, matched_id, patent)
+            _record_patent_source(connection, matched_id, patent)
+            if query is not None:
+                record_patent_query_match(connection, matched_id, query)
+            merged_ids.append(matched_id)
+            merged = get_patent_by_id(connection, matched_id)
+            if merged is not None:
+                merged_patents.append(merged)
+            continue
+
+        patent_id = _insert_new_patent(connection, patent)
+        if query is not None:
+            record_patent_query_match(connection, patent_id, query)
+        inserted_ids.append(patent_id)
+        new_patents.append(get_patent_by_id(connection, patent_id) or patent)
+
+    return InsertPatentsResult(
+        processed_count=len(patents),
+        inserted_ids=inserted_ids,
+        new_patents=new_patents,
+        merged_ids=merged_ids,
+        merged_patents=merged_patents,
+    )
+
+
+def insert_patent(
+    connection: sqlite3.Connection,
+    patent: Patent,
+) -> int | None:
+    result = insert_patents(connection, [patent])
+    return result.inserted_ids[0] if result.inserted_ids else None
+
+
+def _row_to_patent(
+    row: sqlite3.Row,
+    source_rows: list[sqlite3.Row],
+) -> Patent:
+    sources = [source_row["source"] for source_row in source_rows]
+    external_ids = {
+        source_row["source"]: source_row["external_id"]
+        for source_row in source_rows
+    }
+    source_urls = {
+        source_row["source"]: source_row["url"]
+        for source_row in source_rows
+        if source_row["url"]
+    }
+    return Patent(
+        source=row["source"],
+        external_id=row["external_id"],
+        jurisdiction=row["jurisdiction"],
+        publication_number=row["publication_number"],
+        application_number=row["application_number"],
+        title=row["title"],
+        abstract=row["abstract"],
+        inventors=json.loads(row["inventors"] or "[]"),
+        applicants=json.loads(row["applicants"] or "[]"),
+        priority_date=row["priority_date"],
+        publication_date=row["publication_date"],
+        cpc_codes=json.loads(row["cpc_codes"] or "[]"),
+        ipc_codes=json.loads(row["ipc_codes"] or "[]"),
+        family_id=row["family_identifier"],
+        citations=json.loads(row["citations"] or "[]"),
+        url=row["url"],
+        sources=sources or [row["source"]],
+        external_ids=external_ids or {row["source"]: row["external_id"]},
+        source_urls=source_urls,
+    )
+
+
+def get_patent_by_id(
+    connection: sqlite3.Connection,
+    patent_id: int,
+) -> Patent | None:
+    row = connection.execute(
+        """
+        SELECT patents.*, patent_families.family_id AS family_identifier
+        FROM patents
+        LEFT JOIN patent_families ON patent_families.id = patents.family_id
+        WHERE patents.id = ?
+        """,
+        (patent_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    source_rows = connection.execute(
+        """
+        SELECT source, external_id, url
+        FROM patent_sources
+        WHERE patent_id = ?
+        ORDER BY id
+        """,
+        (patent_id,),
+    ).fetchall()
+    return _row_to_patent(row, source_rows)
+
+
+def count_patents(connection: sqlite3.Connection) -> int:
+    row = connection.execute("SELECT COUNT(*) AS count FROM patents").fetchone()
+    return int(row["count"])
+
+
+def link_paper_to_patent(
+    connection: sqlite3.Connection,
+    paper_id: int,
+    patent_id: int,
+    relationship: str,
+    source: str,
+    source_url: str | None = None,
+) -> int | None:
+    cleaned_relationship = relationship.strip()
+    cleaned_source = source.strip()
+    if not cleaned_relationship or not cleaned_source:
+        raise ValueError("Relationship and source cannot be empty")
+    cursor = connection.execute(
+        """
+        INSERT OR IGNORE INTO paper_patent_links (
+            paper_id, patent_id, relationship, source, source_url
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (paper_id, patent_id, cleaned_relationship, cleaned_source, source_url),
+    )
+    return cursor.lastrowid if cursor.rowcount > 0 else None

@@ -41,3 +41,19 @@ def normalize_title(
     )
 
     return normalized
+
+
+def normalize_patent_jurisdiction(
+    jurisdiction: str,
+) -> str:
+    return re.sub(r"[^A-Z0-9]", "", jurisdiction.upper())
+
+
+def normalize_patent_number(
+    number: str | None,
+) -> str | None:
+    if number is None:
+        return None
+
+    normalized = re.sub(r"[^A-Z0-9]", "", number.upper())
+    return normalized or None

@@ -11,7 +11,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 1:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 2:** 1 / 4 tareas principales completadas (25% completada)
+- **Fase 2:** 2 / 4 tareas principales completadas (50% completada)
 - **Fase 3:** 0 / 6 tareas principales completadas
 - **Fase 4:** 0 / 5 tareas principales completadas
 - **Fase 5:** 0 / 5 tareas principales completadas
@@ -78,14 +78,14 @@ Fuentes oficiales para revalidar durante la implementación:
   - [x] Añadir pruebas de configuración, credencial ausente, token redactado y fuente deshabilitada.
   - [x] Cerrar con commit sugerido `chore: define external API access and configuration` y push a GitHub.
 
-- [ ] **Tarea 2.2: Modelo canónico y persistencia de patentes**
-  - [ ] Crear `Patent` con número de publicación, número de solicitud, jurisdicción, título, abstract, inventores, solicitantes, fechas de prioridad/publicación, CPC/IPC, familia, citas, URL y procedencia.
-  - [ ] Crear mediante migración aditiva las tablas `patents`, `patent_sources`, `patent_query_matches` y `patent_families` sin alterar los papers existentes.
-  - [ ] Definir identidad por `jurisdiction + publication_number`; usar `application_number` como respaldo y vincular miembros mediante `family_id` sin fusionarlos.
-  - [ ] Añadir tabla `paper_patent_links` para relaciones de citación provenientes de Lens u otras fuentes verificables.
-  - [ ] Implementar inserción idempotente, fusión de metadatos y trazabilidad de todas las fuentes.
-  - [ ] Añadir migraciones y pruebas de deduplicación, familias, procedencia y compatibilidad con bases `v0.4.0`.
-  - [ ] Cerrar con commit sugerido `feat: add canonical patent storage model` y push a GitHub.
+- [x] **Tarea 2.2: Modelo canónico y persistencia de patentes**
+  - [x] Crear `Patent` con número de publicación, número de solicitud, jurisdicción, título, abstract, inventores, solicitantes, fechas de prioridad/publicación, CPC/IPC, familia, citas, URL y procedencia.
+  - [x] Crear mediante migración aditiva las tablas `patents`, `patent_sources`, `patent_query_matches` y `patent_families` sin alterar los papers existentes.
+  - [x] Definir identidad por `jurisdiction + publication_number`; usar `application_number` como respaldo y vincular miembros mediante `family_id` sin fusionarlos.
+  - [x] Añadir tabla `paper_patent_links` para relaciones de citación provenientes de Lens u otras fuentes verificables.
+  - [x] Implementar inserción idempotente, fusión de metadatos y trazabilidad de todas las fuentes.
+  - [x] Añadir migraciones y pruebas de deduplicación, familias, procedencia y compatibilidad con bases `v0.4.0`.
+  - [x] Cerrar con commit sugerido `feat: add canonical patent storage model` y push a GitHub.
 
 - [ ] **Tarea 2.3: Contrato común de adaptadores y orquestador por ámbito**
   - [ ] Definir un protocolo de adaptador con capacidades (`paper`, `patent`, `discovery`, `enrichment`, filtros temporales y paginación).
