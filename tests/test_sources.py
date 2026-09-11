@@ -4,14 +4,17 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from paper_watcher.config import Config
-from paper_watcher.exceptions import InvalidResponseError
+from paper_watcher.exceptions import InvalidResponseError, ServiceUnavailableError
+from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.sources.arxiv import (
     parse_arxiv_xml,
     search_arxiv,
 )
 from paper_watcher.sources.biorxiv import (
+    _get_biorxiv,
     parse_biorxiv_json,
     search_biorxiv,
 )
@@ -186,6 +189,67 @@ class TestArxivSource:
 
 
 class TestBiorxivSource:
+    @pytest.mark.parametrize(
+        ("server", "provider"),
+        (("biorxiv", "bioRxiv"), ("medrxiv", "medRxiv")),
+    )
+    def test_empty_success_response_is_retried_with_clear_error(
+        self,
+        server: str,
+        provider: str,
+    ):
+        empty = MagicMock(status_code=200, headers={}, content=b"")
+        session = MagicMock(spec=requests.Session)
+        session.request.return_value = empty
+        client = HttpClient(
+            HttpPolicy(
+                timeout=5,
+                max_retries=2,
+                backoff_min=0,
+                backoff_max=0,
+            ),
+            session=session,
+        )
+
+        with pytest.raises(
+            ServiceUnavailableError,
+            match=rf"^{provider} returned an empty response$",
+        ):
+            _get_biorxiv(
+                f"https://api.biorxiv.org/details/{server}/30d/0",
+                http_client=client,
+            )
+
+        assert session.request.call_count == 3
+
+    def test_request_recovers_when_retry_returns_content(self):
+        empty = MagicMock(status_code=200, headers={}, content=b" \n")
+        successful = MagicMock(
+            status_code=200,
+            headers={},
+            content=b'{"messages": [], "collection": []}',
+        )
+        successful.raise_for_status.return_value = None
+        session = MagicMock(spec=requests.Session)
+        session.request.side_effect = [empty, successful]
+        client = HttpClient(
+            HttpPolicy(
+                timeout=5,
+                max_retries=1,
+                backoff_min=0,
+                backoff_max=0,
+            ),
+            session=session,
+        )
+
+        response = _get_biorxiv(
+            "https://api.biorxiv.org/details/biorxiv/30d/0",
+            http_client=client,
+        )
+
+        assert response is successful
+        assert session.request.call_count == 2
+
     @pytest.fixture
     def sample_biorxiv_payload(self) -> dict:
         return {

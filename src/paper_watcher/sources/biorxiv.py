@@ -9,7 +9,7 @@ from typing import Any
 import requests
 
 from paper_watcher.config import load_config
-from paper_watcher.exceptions import InvalidResponseError
+from paper_watcher.exceptions import InvalidResponseError, ServiceUnavailableError
 from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.models import Paper
 from paper_watcher.query_language import matches_query
@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 BIORXIV_BASE_URL = "https://api.biorxiv.org/details"
 BIORXIV_SERVERS = ("biorxiv", "medrxiv")
+
+
+def _provider_name(url: str) -> str:
+    return "medRxiv" if "/medrxiv/" in url else "bioRxiv"
+
+
+def _validate_biorxiv_response(
+    response: requests.Response,
+    *,
+    provider: str,
+) -> None:
+    """Treat an empty successful response as a temporary provider failure."""
+    if 200 <= response.status_code < 300 and not response.content.strip():
+        raise ServiceUnavailableError(f"{provider} returned an empty response")
 
 @dataclass(frozen=True)
 class BiorxivSearchResult:
@@ -39,8 +53,16 @@ def _get_biorxiv(
     client = http_client or HttpClient(
         HttpPolicy(config.request_timeout, config.max_retries, backoff_max=10)
     )
+    provider = _provider_name(url)
     return client.request(
-        "GET", url, provider="bioRxiv/medRxiv", params=params
+        "GET",
+        url,
+        provider=provider,
+        params=params,
+        response_validator=lambda response: _validate_biorxiv_response(
+            response,
+            provider=provider,
+        ),
     )
 
 
