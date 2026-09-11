@@ -674,10 +674,20 @@ Generate a global Markdown report:
 paper-watcher report-all
 ```
 
+Use verbose mode to generate one detailed section per stored paper, including
+its identifiers, sources, publication metadata, authors, matched queries, and
+abstract:
+
+```bash
+paper-watcher report-all -v
+# Equivalent: paper-watcher report-all --verbose
+```
+
 Output:
 
 ```text
 reports/all-papers_YYYY-MM-DD_HHMMSS.md
+reports/all-papers-detailed_YYYY-MM-DD_HHMMSS.md  # verbose mode
 ```
 
 Columns:

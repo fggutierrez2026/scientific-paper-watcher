@@ -16,6 +16,7 @@ from paper_watcher.main import (
     build_parser,
     list_queries_command,
     main,
+    report_all_command,
     run,
     run_command,
 )
@@ -24,6 +25,7 @@ from paper_watcher.storage.sqlite import (
     add_watch_query,
     database_connection,
     initialize_database,
+    insert_papers,
     list_watch_query_rows,
     update_watch_query_last_checked,
 )
@@ -164,6 +166,40 @@ def test_search_and_run_commands_dispatch_compatible_arguments():
     with patch("paper_watcher.main.run_command") as command:
         assert main(["run", "--query", "biosensor"]) == 0
         assert command.call_args.kwargs["scope"] is None
+
+
+def test_report_all_cli_accepts_verbose_short_and_long_flags():
+    parser = build_parser()
+
+    assert parser.parse_args(["report-all"]).verbose is False
+    assert parser.parse_args(["report-all", "-v"]).verbose is True
+    assert parser.parse_args(["report-all", "--verbose"]).verbose is True
+
+    with patch("paper_watcher.main.report_all_command") as command:
+        assert main(["report-all", "-v"]) == 0
+        command.assert_called_once_with(verbose=True)
+
+
+def test_verbose_report_all_uses_detailed_rows(tmp_path: Path, sample_paper: Paper):
+    config = Config(
+        database_path=tmp_path / "papers.db",
+        report_dir=tmp_path / "reports",
+        request_timeout=10,
+        max_retries=2,
+        ncbi_email="test@example.com",
+    )
+    initialize_database(config.database_path)
+    with database_connection(config.database_path) as connection:
+        insert_papers(connection, [sample_paper], query="biosensor")
+
+    with patch("paper_watcher.main.load_config", return_value=config):
+        report_all_command(verbose=True)
+
+    reports = list(config.report_dir.glob("all-papers-detailed_*.md"))
+    assert len(reports) == 1
+    content = reports[0].read_text(encoding="utf-8")
+    assert sample_paper.title in content
+    assert sample_paper.abstract in content
 
 
 def test_stored_query_preserves_patent_scope(tmp_path: Path):

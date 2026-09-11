@@ -21,6 +21,7 @@ from paper_watcher.query_language import (
 )
 from paper_watcher.reports.markdown import (
     write_all_papers_report,
+    write_detailed_all_papers_report,
     write_markdown_report,
     write_scoped_markdown_report,
 )
@@ -36,6 +37,7 @@ from paper_watcher.storage.sqlite import (
     count_papers,
     count_patents,
     database_connection,
+    get_all_detailed_paper_report_rows,
     get_all_paper_report_rows,
     initialize_database,
     insert_papers,
@@ -315,12 +317,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="List stored watch queries.",
     )
 
-    subparsers.add_parser(
+    report_all_parser = subparsers.add_parser(
         "report-all",
         help=(
             "Generate a Markdown report "
             "for all stored papers."
         ),
+    )
+    report_all_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Include complete paper metadata and abstracts.",
     )
 
     remove_query_parser = (
@@ -935,7 +943,7 @@ def list_queries_command() -> None:
             f"{row['query']}"
         )
 
-def report_all_command() -> None:
+def report_all_command(verbose: bool = False) -> None:
     config = load_config()
 
     initialize_database(
@@ -945,23 +953,31 @@ def report_all_command() -> None:
     with database_connection(
         config.database_path
     ) as connection:
-        rows = get_all_paper_report_rows(
-            connection
-        )
+        if verbose:
+            detailed_rows = get_all_detailed_paper_report_rows(connection)
+            row_count = len(detailed_rows)
+        else:
+            rows = get_all_paper_report_rows(connection)
+            row_count = len(rows)
 
-    report_path = write_all_papers_report(
-        report_dir=config.report_dir,
-        rows=rows,
-    )
+    if verbose:
+        report_path = write_detailed_all_papers_report(
+            report_dir=config.report_dir,
+            rows=detailed_rows,
+        )
+    else:
+        report_path = write_all_papers_report(
+            report_dir=config.report_dir,
+            rows=rows,
+        )
 
     print()
     print("=" * 70)
     print("ALL PAPERS REPORT")
     print("=" * 70)
 
-    print(
-        f"Rows: {len(rows)}"
-    )
+    count_label = "Papers" if verbose else "Rows"
+    print(f"{count_label}: {row_count}")
 
     print(
         f"Report written to: "
@@ -1198,7 +1214,7 @@ def main(
             return 0
 
         if args.command == "report-all":
-            report_all_command()
+            report_all_command(verbose=args.verbose)
 
             return 0
 

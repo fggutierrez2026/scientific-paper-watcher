@@ -8,6 +8,7 @@ from paper_watcher.models import Paper
 from paper_watcher.storage.sqlite import (
     add_watch_query,
     count_papers,
+    get_all_detailed_paper_report_rows,
     get_all_paper_report_rows,
     get_paper_by_id,
     initialize_database,
@@ -212,6 +213,11 @@ class TestSqliteStorage:
             "SELECT count(*) FROM paper_query_matches"
         ).fetchone()[0]
         assert matches_count == 4
+
+        detailed_rows = get_all_detailed_paper_report_rows(db_connection)
+        assert len(detailed_rows) == 2
+        assert detailed_rows[0].paper.abstract is not None
+        assert detailed_rows[0].queries == [query2, query]
 
     def test_watch_query_lifecycle_preserves_provenance(
         self,

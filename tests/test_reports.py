@@ -5,13 +5,15 @@ from pathlib import Path
 from paper_watcher.models import Paper, Patent
 from paper_watcher.reports.markdown import (
     escape_markdown_table_cell,
+    render_detailed_all_papers_report_markdown,
     render_paper_markdown,
     slugify_query,
     write_all_papers_report,
+    write_detailed_all_papers_report,
     write_markdown_report,
     write_scoped_markdown_report,
 )
-from paper_watcher.storage.sqlite import PaperReportRow
+from paper_watcher.storage.sqlite import DetailedPaperReportRow, PaperReportRow
 
 
 def test_slugify_query():
@@ -97,6 +99,29 @@ def test_render_and_write_all_papers_report(tmp_path: Path):
     assert "| Query | Title | Authors | Source | URL |" in content
     assert "legacy / unknown" in content
     assert "Design of Novel Enzymes" in content
+
+
+def test_verbose_all_papers_report_includes_details_and_abstract(
+    tmp_path: Path,
+    sample_paper: Paper,
+):
+    rows = [
+        DetailedPaperReportRow(
+            paper=sample_paper,
+            queries=["protein design", "biosensors"],
+        )
+    ]
+
+    rendered = render_detailed_all_papers_report_markdown(rows)
+    report_path = write_detailed_all_papers_report(tmp_path, rows)
+    content = report_path.read_text(encoding="utf-8")
+
+    assert "# Scientific Paper Watcher - Detailed Paper Report" in rendered
+    assert "**Papers:** 1" in content
+    assert sample_paper.title in content
+    assert sample_paper.abstract in content
+    assert "**Matched queries:** protein design, biosensors" in content
+    assert report_path.name.startswith("all-papers-detailed_")
 
 
 def test_render_paper_markdown_cross_source(tmp_path: Path):

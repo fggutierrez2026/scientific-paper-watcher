@@ -248,6 +248,13 @@ class PaperReportRow:
     source: str
     url: str | None
 
+
+@dataclass(frozen=True)
+class DetailedPaperReportRow:
+    paper: Paper
+    queries: list[str]
+
+
 @dataclass
 class InsertPapersResult:
     processed_count: int
@@ -1194,6 +1201,64 @@ def get_all_paper_report_rows(
             url=row["url"],
         )
         for row in rows
+    ]
+
+
+def get_all_detailed_paper_report_rows(
+    connection: sqlite3.Connection,
+) -> list[DetailedPaperReportRow]:
+    paper_rows = connection.execute(
+        """
+        SELECT
+            id,
+            source,
+            external_id,
+            doi,
+            title,
+            abstract,
+            authors,
+            published,
+            url,
+            openalex_id,
+            citation_count,
+            topics,
+            pdf_url
+        FROM papers
+        ORDER BY title
+        """
+    ).fetchall()
+    source_rows = connection.execute(
+        """
+        SELECT paper_id, source, external_id, url, doi
+        FROM paper_sources
+        ORDER BY paper_id, id
+        """
+    ).fetchall()
+    query_rows = connection.execute(
+        """
+        SELECT paper_id, query
+        FROM paper_query_matches
+        ORDER BY paper_id, query
+        """
+    ).fetchall()
+
+    sources_by_paper: dict[int, list[sqlite3.Row]] = {}
+    for row in source_rows:
+        sources_by_paper.setdefault(row["paper_id"], []).append(row)
+
+    queries_by_paper: dict[int, list[str]] = {}
+    for row in query_rows:
+        queries_by_paper.setdefault(row["paper_id"], []).append(row["query"])
+
+    return [
+        DetailedPaperReportRow(
+            paper=_row_to_paper(
+                row,
+                sources_by_paper.get(row["id"]),
+            ),
+            queries=queries_by_paper.get(row["id"], []),
+        )
+        for row in paper_rows
     ]
 
 

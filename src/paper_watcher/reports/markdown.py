@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from paper_watcher.models import Paper, Patent
-from paper_watcher.storage.sqlite import PaperReportRow
+from paper_watcher.storage.sqlite import DetailedPaperReportRow, PaperReportRow
 
 LATEX_TEXT_COMMAND = re.compile(
     r"\\(?:emph|mbox|mathbf|mathit|mathrm|text|textbf|textit|underline)"
@@ -50,6 +50,7 @@ def slugify_query(
 
 def render_paper_markdown(
     paper: Paper,
+    matched_queries: list[str] | None = None,
 ) -> str:
     lines: list[str] = []
 
@@ -162,6 +163,10 @@ def render_paper_markdown(
             "- **Authors:** "
             + ", ".join(paper.authors)
         )
+
+    if matched_queries is not None:
+        queries = ", ".join(matched_queries) if matched_queries else "legacy / unknown"
+        lines.append(f"- **Matched queries:** {queries}")
 
     lines.append("")
 
@@ -541,4 +546,49 @@ def write_all_papers_report(
         encoding="utf-8",
     )
 
+    return report_path
+
+
+def render_detailed_all_papers_report_markdown(
+    rows: list[DetailedPaperReportRow],
+    generated_at: datetime | None = None,
+) -> str:
+    generated_at = generated_at or datetime.now().astimezone()
+    lines = [
+        "# Scientific Paper Watcher - Detailed Paper Report",
+        "",
+        f"**Generated:** {generated_at.isoformat()}",
+        "",
+        f"**Papers:** {len(rows)}",
+        "",
+    ]
+
+    if not rows:
+        lines.extend(["_No papers stored._", ""])
+        return "\n".join(lines)
+
+    for row in rows:
+        lines.append(
+            render_paper_markdown(
+                row.paper,
+                matched_queries=row.queries,
+            )
+        )
+
+    return "\n".join(lines)
+
+
+def write_detailed_all_papers_report(
+    report_dir: Path,
+    rows: list[DetailedPaperReportRow],
+    generated_at: datetime | None = None,
+) -> Path:
+    generated_at = generated_at or datetime.now().astimezone()
+    report_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = generated_at.strftime("%Y-%m-%d_%H%M%S")
+    report_path = report_dir / f"all-papers-detailed_{timestamp}.md"
+    report_path.write_text(
+        render_detailed_all_papers_report_markdown(rows, generated_at),
+        encoding="utf-8",
+    )
     return report_path
