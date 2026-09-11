@@ -5,6 +5,7 @@ from pathlib import Path
 from paper_watcher.models import Paper, Patent
 from paper_watcher.reports.markdown import (
     escape_markdown_table_cell,
+    render_paper_markdown,
     slugify_query,
     write_all_papers_report,
     write_markdown_report,
@@ -41,6 +42,33 @@ def test_render_and_write_markdown_report(tmp_path: Path, sample_paper: Paper):
     assert "Source X degraded" in content
     assert sample_paper.title in content
     assert sample_paper.external_id in content
+
+
+def test_render_arxiv_abstract_converts_text_latex_and_preserves_math(
+    sample_paper: Paper,
+):
+    paper = Paper(
+        **{
+            **sample_paper.__dict__,
+            "source": "arxiv",
+            "sources": ["arxiv"],
+            "abstract": (
+                r"Models~(PLMs). Called $\underline{\text{r}}$etrieval-"
+                r"$\underline{\text{a}}$ugmented $\underline{\text{d}}$enoising "
+                r"$\underline{\text{diff}}$usion~($\mbox{RadDiff}$), improves "
+                r"recovery by 19\%. The loss is $E=mc^2$."
+            ),
+        }
+    )
+
+    rendered = render_paper_markdown(paper)
+
+    assert "Models (PLMs)." in rendered
+    assert "retrieval-augmented denoising diffusion (RadDiff)" in rendered
+    assert "19%" in rendered
+    assert "$E=mc^2$" in rendered
+    assert "\\underline" not in rendered
+    assert "\\mbox" not in rendered
 
 
 def test_render_and_write_all_papers_report(tmp_path: Path):

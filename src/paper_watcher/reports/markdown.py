@@ -5,9 +5,32 @@ from datetime import datetime
 from pathlib import Path
 
 from paper_watcher.models import Paper, Patent
-from paper_watcher.storage.sqlite import (
-    PaperReportRow,
+from paper_watcher.storage.sqlite import PaperReportRow
+
+LATEX_TEXT_COMMAND = re.compile(
+    r"\\(?:emph|mbox|mathbf|mathit|mathrm|text|textbf|textit|underline)"
+    r"\{([^{}]*)\}"
 )
+SIMPLE_TEXT_MATH = re.compile(r"\$([A-Za-z][A-Za-z0-9 .,'-]*)\$")
+LATEX_ESCAPED_PUNCTUATION = re.compile(r"\\([%&#_$])")
+
+
+def format_arxiv_abstract(abstract: str) -> str:
+    """Make text-oriented arXiv LaTeX readable without flattening formulas."""
+    formatted = abstract.replace("~", " ")
+
+    # Commands can be nested, for example ``\underline{\text{r}}``.
+    while True:
+        unwrapped = LATEX_TEXT_COMMAND.sub(r"\1", formatted)
+        if unwrapped == formatted:
+            break
+        formatted = unwrapped
+
+    # Remove math delimiters only from text fragments. Mathematical expressions
+    # such as ``$E=mc^2$`` remain intact for Markdown renderers with math support.
+    formatted = SIMPLE_TEXT_MATH.sub(r"\1", formatted)
+    formatted = LATEX_ESCAPED_PUNCTUATION.sub(r"\1", formatted)
+    return re.sub(r"\s+", " ", formatted).strip()
 
 
 def slugify_query(
@@ -143,8 +166,11 @@ def render_paper_markdown(
     lines.append("")
 
     if paper.abstract:
+        abstract = paper.abstract.strip()
+        if any(source.lower() == "arxiv" for source in paper.sources):
+            abstract = format_arxiv_abstract(abstract)
         lines.append(
-            paper.abstract.strip()
+            abstract
         )
     else:
         lines.append(
