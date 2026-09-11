@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from paper_watcher.models import Paper
+from paper_watcher.models import Paper, Patent
 from paper_watcher.reports.markdown import (
     escape_markdown_table_cell,
     slugify_query,
     write_all_papers_report,
     write_markdown_report,
+    write_scoped_markdown_report,
 )
 from paper_watcher.storage.sqlite import PaperReportRow
 
@@ -129,3 +130,42 @@ def test_report_renders_openalex_enrichment(tmp_path: Path, sample_paper: Paper)
     assert "**Citations (OpenAlex):** 42" in content
     assert "**Topics:** Biosensor Engineering, Protein Design" in content
     assert "[Download PDF](https://example.org/paper.pdf)" in content
+
+
+def test_scoped_report_has_separate_paper_and_patent_sections(
+    tmp_path: Path, sample_paper: Paper
+):
+    patent = Patent(
+        source="lens",
+        external_id="US123A1",
+        publication_number="US123A1",
+        application_number=None,
+        jurisdiction="US",
+        title="Biosensor patent",
+        abstract="Patent abstract.",
+        inventors=["Ada Lovelace"],
+        applicants=["Example Corp"],
+        priority_date="2025-01-01",
+        publication_date="2026-01-01",
+        cpc_codes=["G01N"],
+        ipc_codes=[],
+        family_id="FAMILY-1",
+        citations=[],
+        url="https://example.test/patent",
+    )
+
+    path = write_scoped_markdown_report(
+        tmp_path,
+        "biosensor",
+        [sample_paper],
+        [patent],
+        scope="all",
+    )
+    content = path.read_text(encoding="utf-8")
+
+    assert "**Papers:** 1" in content
+    assert "**Patents:** 1" in content
+    assert "## Papers" in content
+    assert "## Patents" in content
+    assert sample_paper.title in content
+    assert "Biosensor patent" in content

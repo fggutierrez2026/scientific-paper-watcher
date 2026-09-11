@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from paper_watcher.models import Paper
+from paper_watcher.models import Paper, Patent
 from paper_watcher.storage.sqlite import (
     PaperReportRow,
 )
@@ -149,6 +149,108 @@ def render_paper_markdown(
     lines.append("")
 
     return "\n".join(lines)
+
+
+def render_patent_markdown(patent: Patent) -> str:
+    lines = [f"### {patent.title}", "", f"**{patent.source.upper()}**", ""]
+    if patent.publication_number:
+        lines.append(f"- **Publication number:** {patent.publication_number}")
+    if patent.application_number:
+        lines.append(f"- **Application number:** {patent.application_number}")
+    lines.append(f"- **Jurisdiction:** {patent.jurisdiction}")
+    if patent.publication_date:
+        lines.append(f"- **Published:** {patent.publication_date}")
+    if patent.priority_date:
+        lines.append(f"- **Priority:** {patent.priority_date}")
+    if patent.family_id:
+        lines.append(f"- **Family:** {patent.family_id}")
+    if patent.applicants:
+        lines.append(f"- **Applicants:** {', '.join(patent.applicants)}")
+    if patent.inventors:
+        lines.append(f"- **Inventors:** {', '.join(patent.inventors)}")
+    if patent.cpc_codes:
+        lines.append(f"- **CPC:** {', '.join(patent.cpc_codes)}")
+    if patent.ipc_codes:
+        lines.append(f"- **IPC:** {', '.join(patent.ipc_codes)}")
+    if patent.url:
+        lines.append(f"- **URL:** {patent.url}")
+    lines.extend(["", patent.abstract.strip() if patent.abstract else "_Abstract not available._", ""])
+    return "\n".join(lines)
+
+
+def render_scoped_report_markdown(
+    query: str,
+    papers: list[Paper],
+    patents: list[Patent],
+    *,
+    scope: str,
+    generated_at: datetime | None = None,
+    warnings: list[str] | None = None,
+) -> str:
+    generated_at = generated_at or datetime.now().astimezone()
+    warnings = warnings or []
+    lines = [
+        "# Scientific Paper Watcher Search Report",
+        "",
+        f"**Query:** {query}",
+        f"**Scope:** {scope}",
+        f"**Generated:** {generated_at.isoformat(timespec='seconds')}",
+        f"**Papers:** {len(papers)}",
+        f"**Patents:** {len(patents)}",
+        "",
+    ]
+    if warnings:
+        lines.extend(["## Source warnings", ""])
+        lines.extend(f"- {warning}" for warning in warnings)
+        lines.append("")
+
+    if scope in {"papers", "all"}:
+        lines.extend(["## Papers", ""])
+        if papers:
+            for paper in papers:
+                rendered = render_paper_markdown(paper)
+                lines.append(rendered.replace("## ", "### ", 1))
+        else:
+            lines.extend(["_No new papers found._", ""])
+
+    if scope in {"patents", "all"}:
+        lines.extend(["## Patents", ""])
+        if patents:
+            lines.extend(render_patent_markdown(patent) for patent in patents)
+        else:
+            lines.extend(["_No new patents found._", ""])
+
+    return "\n".join(lines)
+
+
+def write_scoped_markdown_report(
+    report_dir: Path,
+    query: str,
+    papers: list[Paper],
+    patents: list[Patent],
+    *,
+    scope: str,
+    generated_at: datetime | None = None,
+    warnings: list[str] | None = None,
+) -> Path:
+    generated_at = generated_at or datetime.now().astimezone()
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / (
+        f"{slugify_query(query)}_{scope}_"
+        f"{generated_at.strftime('%Y-%m-%d_%H%M%S')}.md"
+    )
+    report_path.write_text(
+        render_scoped_report_markdown(
+            query,
+            papers,
+            patents,
+            scope=scope,
+            generated_at=generated_at,
+            warnings=warnings,
+        ),
+        encoding="utf-8",
+    )
+    return report_path
 
 def render_report_markdown(
     query: str,

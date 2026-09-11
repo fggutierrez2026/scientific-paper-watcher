@@ -11,7 +11,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 1:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 2:** 3 / 4 tareas principales completadas (75% completada)
+- **Fase 2:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 3:** 0 / 6 tareas principales completadas
 - **Fase 4:** 0 / 5 tareas principales completadas
 - **Fase 5:** 0 / 5 tareas principales completadas
@@ -96,14 +96,14 @@ Fuentes oficiales para revalidar durante la implementación:
   - [x] Añadir pruebas contractuales reutilizables que todo adaptador deba superar.
   - [x] Cerrar con commit sugerido `refactor: add scoped source adapter registry` y push a GitHub.
 
-- [ ] **Tarea 2.4: Comando de búsqueda y ámbito predeterminado `papers`**
-  - [ ] Añadir `paper-watcher search --query QUERY --scope papers|patents|all`, con `papers` como valor predeterminado.
-  - [ ] Mantener `paper-watcher run --query` como alias compatible durante al menos una versión y documentar su futura evolución.
-  - [ ] Añadir `--scope` a `add-query` y `run`; migrar consultas existentes con `scope='papers'` y mostrarlo en `list-queries`.
-  - [ ] Enrutar `papers` solo al registro científico, `patents` solo al registro de patentes y `all` a ambos.
-  - [ ] Generar secciones separadas en consola y Markdown, además de conteos por tipo documental.
-  - [ ] Añadir pruebas CLI de valor predeterminado, los tres ámbitos, argumentos inválidos y compatibilidad hacia atrás.
-  - [ ] Cerrar con commit sugerido `feat: add scoped paper and patent search command` y push a GitHub.
+- [x] **Tarea 2.4: Comando de búsqueda y ámbito predeterminado `papers`**
+  - [x] Añadir `paper-watcher search --query QUERY --scope papers|patents|all`, con `papers` como valor predeterminado.
+  - [x] Mantener `paper-watcher run --query` como alias compatible durante al menos una versión y documentar su futura evolución.
+  - [x] Añadir `--scope` a `add-query` y `run`; migrar consultas existentes con `scope='papers'` y mostrarlo en `list-queries`.
+  - [x] Enrutar `papers` solo al registro científico, `patents` solo al registro de patentes y `all` a ambos.
+  - [x] Generar secciones separadas en consola y Markdown, además de conteos por tipo documental.
+  - [x] Añadir pruebas CLI de valor predeterminado, los tres ámbitos, argumentos inválidos y compatibilidad hacia atrás.
+  - [x] Cerrar con commit sugerido `feat: add scoped paper and patent search command` y push a GitHub.
 
 ---
 

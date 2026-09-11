@@ -4,10 +4,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from paper_watcher import __version__
+from paper_watcher.adapters import (
+    SearchOrchestrator,
+    SearchRequest,
+    SearchScope,
+    build_builtin_registry,
+)
 from paper_watcher.config import load_config
 from paper_watcher.exceptions import PaperWatcherError
 from paper_watcher.logging_config import setup_logging
-from paper_watcher.models import Paper
+from paper_watcher.models import Paper, Patent
 from paper_watcher.query_language import (
     normalize_common_query,
     to_arxiv_query,
@@ -16,6 +22,7 @@ from paper_watcher.query_language import (
 from paper_watcher.reports.markdown import (
     write_all_papers_report,
     write_markdown_report,
+    write_scoped_markdown_report,
 )
 from paper_watcher.sources.arxiv import search_arxiv
 from paper_watcher.sources.biorxiv import BIORXIV_SERVERS, search_biorxiv
@@ -27,10 +34,12 @@ from paper_watcher.sources.pubmed import (
 from paper_watcher.storage.sqlite import (
     add_watch_query,
     count_papers,
+    count_patents,
     database_connection,
     get_all_paper_report_rows,
     initialize_database,
     insert_papers,
+    insert_patents,
     list_watch_query_rows,
     remove_watch_query,
     update_watch_query_last_checked,
@@ -56,7 +65,7 @@ class RunResult:
 
     @property
     def all_sources_completed(self) -> bool:
-        return self.completed_sources == self.total_sources
+        return self.total_sources > 0 and self.completed_sources == self.total_sources
 
     @property
     def checkpoint_can_advance(self) -> bool:
@@ -116,6 +125,22 @@ def print_paper(paper) -> None:
 
     print()
 
+
+def print_patent(patent: Patent) -> None:
+    print(f"Source: {patent.source}")
+    print(f"ID: {patent.external_id}")
+    print(f"Title: {patent.title}")
+    print(f"Jurisdiction: {patent.jurisdiction}")
+    if patent.publication_number:
+        print(f"Publication number: {patent.publication_number}")
+    if patent.application_number:
+        print(f"Application number: {patent.application_number}")
+    if patent.publication_date:
+        print(f"Publication date: {patent.publication_date}")
+    if patent.applicants:
+        print(f"Applicants: {', '.join(patent.applicants[:3])}")
+    print()
+
 def _positive_int(value: str) -> int:
     number = int(value)
 
@@ -149,8 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paper-watcher",
         description=(
-            "Search scientific papers from "
-            "PubMed, arXiv, bioRxiv, and medRxiv."
+            "Search papers and patents through configured source adapters."
         ),
     )
 
@@ -167,7 +191,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser(
         "run",
-        help="Search configured scientific sources.",
+        help=(
+            "Run a direct or stored query (compatibility command; "
+            "use search for new direct searches)."
+        ),
     )
 
     run_parser.add_argument(
@@ -185,8 +212,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         default=5,
         help=(
-            "Maximum number of papers to retrieve "
+            "Maximum number of documents to retrieve "
             "from each source (default: 5)."
+        ),
+    )
+
+    run_parser.add_argument(
+        "--scope",
+        choices=tuple(SearchScope),
+        default=None,
+        help=(
+            "Search scope. Defaults to papers for --query; when running stored "
+            "queries, each query's saved scope is used unless overridden."
         ),
     )
 
@@ -205,13 +242,55 @@ def build_parser() -> argparse.ArgumentParser:
         "--since",
         type=_since_date,
         metavar="YYYY-MM-DD",
-        help="Retrieve papers added on or after this UTC date.",
+        help="Retrieve documents added on or after this UTC date.",
     )
     time_group.add_argument(
         "--days",
         type=_positive_int,
         metavar="N",
-        help="Retrieve papers added during the last N days.",
+        help="Retrieve documents added during the last N days.",
+    )
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search papers, patents, or both.",
+    )
+    search_parser.add_argument(
+        "--query",
+        required=True,
+        type=_non_empty_text,
+        help="Query to run.",
+    )
+    search_parser.add_argument(
+        "--scope",
+        choices=tuple(SearchScope),
+        default=SearchScope.PAPERS,
+        help="Search scope (default: papers).",
+    )
+    search_parser.add_argument(
+        "--max-results",
+        type=_positive_int,
+        default=5,
+        help="Maximum results to retrieve from each source (default: 5).",
+    )
+    search_parser.add_argument(
+        "--openalex",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable OpenAlex enrichment for paper results.",
+    )
+    search_time_group = search_parser.add_mutually_exclusive_group()
+    search_time_group.add_argument(
+        "--since",
+        type=_since_date,
+        metavar="YYYY-MM-DD",
+        help="Retrieve documents added on or after this UTC date.",
+    )
+    search_time_group.add_argument(
+        "--days",
+        type=_positive_int,
+        metavar="N",
+        help="Retrieve documents added during the last N days.",
     )
 
     add_query_parser = subparsers.add_parser(
@@ -223,6 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
         "watch_query",
         type=_non_empty_text,
         help="Scientific query to store.",
+    )
+    add_query_parser.add_argument(
+        "--scope",
+        choices=tuple(SearchScope),
+        default=SearchScope.PAPERS,
+        help="Stored search scope (default: papers).",
     )
 
     subparsers.add_parser(
@@ -259,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def run(
+def _legacy_run(
     query: str,
     max_results: int,
     use_openalex: bool | None = None,
@@ -643,8 +728,143 @@ def run(
         truncated_sources=tuple(truncated_sources),
     )
 
+
+def run(
+    query: str,
+    max_results: int,
+    use_openalex: bool | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    scope: SearchScope | str = SearchScope.PAPERS,
+) -> RunResult:
+    """Search configured adapters, persist results, and write a scoped report."""
+    setup_logging()
+    config = load_config()
+    since, until = validate_window(since, until)
+    common_query = normalize_common_query(query)
+    parsed_scope = SearchScope(scope)
+
+    initialize_database(config.database_path)
+    ensure_directories()
+
+    registry = build_builtin_registry(config)
+    paper_sources = tuple(
+        source for source in config.paper_sources if source != "openalex"
+    )
+    orchestration = SearchOrchestrator(registry).search(
+        SearchRequest(
+            common_query,
+            max_results=max_results,
+            since=since,
+            until=until,
+        ),
+        scope=parsed_scope,
+        paper_sources=paper_sources,
+        patent_sources=config.patent_sources,
+    )
+    total_sources = len(orchestration.source_results)
+    if total_sources and orchestration.completed_sources == 0:
+        raise PaperWatcherError(
+            "All selected sources failed: " + " | ".join(orchestration.warnings)
+        )
+
+    papers = list(orchestration.papers)
+    patents = list(orchestration.patents)
+    warnings = list(orchestration.warnings)
+    if parsed_scope in {SearchScope.PAPERS, SearchScope.ALL} and not paper_sources:
+        warnings.append("No paper sources are enabled.")
+    if (
+        parsed_scope in {SearchScope.PATENTS, SearchScope.ALL}
+        and not config.patent_sources
+    ):
+        warnings.append(
+            "No patent sources are enabled; patent adapters are added in phase 4."
+        )
+    openalex_enabled = (
+        config.openalex_enabled if use_openalex is None else use_openalex
+    )
+    if openalex_enabled and papers:
+        enrichment = enrich_papers_with_openalex(
+            papers, api_key=config.openalex_api_key
+        )
+        papers = enrichment.papers
+        if enrichment.failed_count:
+            warnings.append(
+                f"OpenAlex enrichment failed for {enrichment.failed_count} paper(s)."
+            )
+
+    print()
+    print("=" * 70)
+    print("SEARCH")
+    print("=" * 70)
+    print(f"Query: {common_query}")
+    print(f"Scope: {parsed_scope.value}")
+
+    if parsed_scope in {SearchScope.PAPERS, SearchScope.ALL}:
+        print()
+        print("=" * 70)
+        print("PAPERS")
+        print("=" * 70)
+        for paper in papers:
+            print_paper(paper)
+        print(f"Papers retrieved: {len(papers)}")
+
+    if parsed_scope in {SearchScope.PATENTS, SearchScope.ALL}:
+        print()
+        print("=" * 70)
+        print("PATENTS")
+        print("=" * 70)
+        for patent in patents:
+            print_patent(patent)
+        print(f"Patents retrieved: {len(patents)}")
+
+    if warnings:
+        print()
+        print("=" * 70)
+        print("SOURCE WARNINGS")
+        print("=" * 70)
+        for warning in warnings:
+            print(f"- {warning}")
+
+    with database_connection(config.database_path) as connection:
+        paper_insert = insert_papers(connection, papers, query=common_query)
+        patent_insert = insert_patents(connection, patents, query=common_query)
+        total_papers = count_papers(connection)
+        total_patents = count_patents(connection)
+
+    reported_papers = paper_insert.new_papers + paper_insert.merged_papers
+    reported_patents = patent_insert.new_patents + patent_insert.merged_patents
+    report_path = write_scoped_markdown_report(
+        config.report_dir,
+        common_query,
+        reported_papers,
+        reported_patents,
+        scope=parsed_scope.value,
+        warnings=warnings,
+    )
+
+    print()
+    print("=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+    print(f"Papers collected: {len(papers)}")
+    print(f"Patents collected: {len(patents)}")
+    print(f"New papers: {paper_insert.inserted_count}")
+    print(f"New patents: {patent_insert.inserted_count}")
+    print(f"Total papers stored: {total_papers}")
+    print(f"Total patents stored: {total_patents}")
+    print(f"Sources completed: {orchestration.completed_sources}/{total_sources}")
+    print(f"Report written to: {report_path}")
+
+    return RunResult(
+        completed_sources=orchestration.completed_sources,
+        total_sources=total_sources,
+        truncated_sources=orchestration.truncated_sources,
+    )
+
 def add_query_command(
     query: str,
+    scope: SearchScope | str = SearchScope.PAPERS,
 ) -> None:
     config = load_config()
 
@@ -664,18 +884,19 @@ def add_query_command(
         query_id = add_watch_query(
             connection,
             normalized_query,
+            SearchScope(scope).value,
         )
 
     if query_id is None:
         print(
             "Query already exists: "
-            f"{normalized_query}"
+            f"{normalized_query} [{SearchScope(scope).value}]"
         )
         return
 
     print(
         "Query added: "
-        f"{normalized_query}"
+        f"{normalized_query} [{SearchScope(scope).value}]"
     )
 
 def list_queries_command() -> None:
@@ -702,17 +923,14 @@ def list_queries_command() -> None:
     print("Stored queries:")
     print()
 
-    print(
-        f"{'ID':<5} {'Last checked (UTC)':<27} Query"
-    )
+    print(f"{'ID':<5} {'Scope':<9} {'Last checked (UTC)':<27} Query")
 
-    print(
-        f"{'--':<5} {'-' * 27} {'-' * 40}"
-    )
+    print(f"{'--':<5} {'-' * 9} {'-' * 27} {'-' * 40}")
 
     for row in query_rows:
         print(
             f"{row['id']:<5} "
+            f"{row['scope']:<9} "
             f"{(row['last_checked_at'] or 'never'):<27} "
             f"{row['query']}"
         )
@@ -756,6 +974,7 @@ def run_command(
     use_openalex: bool | None = None,
     since: datetime | None = None,
     days: int | None = None,
+    scope: SearchScope | str | None = None,
 ) -> None:
     checked_at = datetime.now(UTC)
     explicit_since = since_days(days, checked_at) if days is not None else since
@@ -773,6 +992,7 @@ def run_command(
             use_openalex=use_openalex,
             since=explicit_since,
             until=checked_at if explicit_since is not None else None,
+            scope=scope or SearchScope.PAPERS,
         )
         return
 
@@ -813,6 +1033,7 @@ def run_command(
         start=1,
     ):
         stored_query = str(query_row["query"])
+        stored_scope = SearchScope(scope or str(query_row["scope"]))
         effective_since = explicit_since
         if effective_since is None and query_row["last_checked_at"]:
             try:
@@ -830,6 +1051,7 @@ def run_command(
         print(
             f"Query: {stored_query}"
         )
+        print(f"Scope: {stored_scope.value}")
 
         try:
             run_result = run(
@@ -838,6 +1060,7 @@ def run_command(
                 use_openalex=use_openalex,
                 since=effective_since,
                 until=checked_at if effective_since is not None else None,
+                scope=stored_scope,
             )
 
             successful_queries += 1
@@ -937,13 +1160,27 @@ def main(
                 use_openalex=args.openalex,
                 since=args.since,
                 days=args.days,
+                scope=args.scope,
+            )
+
+            return 0
+
+        if args.command == "search":
+            run_command(
+                query=args.query,
+                max_results=args.max_results,
+                use_openalex=args.openalex,
+                since=args.since,
+                days=args.days,
+                scope=args.scope,
             )
 
             return 0
 
         if args.command == "add-query":
             add_query_command(
-                args.watch_query
+                args.watch_query,
+                args.scope,
             )
 
             return 0

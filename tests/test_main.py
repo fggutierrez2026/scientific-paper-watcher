@@ -1,14 +1,25 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
+import pytest
+
+from paper_watcher.adapters import (
+    AdapterResult,
+    OrchestrationResult,
+    SearchScope,
+    SourceStatus,
+)
 from paper_watcher.config import Config
-from paper_watcher.exceptions import APIError
-from paper_watcher.main import RunResult, build_parser, run, run_command
-from paper_watcher.models import Paper
-from paper_watcher.sources.arxiv import ArxivSearchResult
-from paper_watcher.sources.biorxiv import BiorxivSearchResult
-from paper_watcher.sources.pubmed import PubMedSearchResult
+from paper_watcher.main import (
+    RunResult,
+    build_parser,
+    list_queries_command,
+    main,
+    run,
+    run_command,
+)
+from paper_watcher.models import Paper, Patent
 from paper_watcher.storage.sqlite import (
     add_watch_query,
     database_connection,
@@ -77,6 +88,7 @@ def test_stored_query_uses_and_advances_checkpoint(tmp_path: Path):
         use_openalex=None,
         since=previous,
         until=checked_at,
+        scope=SearchScope.PAPERS,
     )
     with database_connection(config.database_path) as connection:
         row = list_watch_query_rows(connection)[0]
@@ -127,7 +139,79 @@ def test_checkpoint_cannot_advance_when_incremental_results_are_truncated():
     assert result.checkpoint_can_advance is False
 
 
-def test_run_queries_both_preprint_servers_and_isolates_failure(
+def test_search_cli_defaults_to_papers_and_accepts_all_scopes():
+    parser = build_parser()
+
+    default = parser.parse_args(["search", "--query", "biosensor"])
+    assert default.scope == SearchScope.PAPERS
+    for scope in SearchScope:
+        parsed = parser.parse_args(
+            ["search", "--query", "biosensor", "--scope", scope.value]
+        )
+        assert parsed.scope == scope
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["search", "--query", "biosensor", "--scope", "invalid"]
+        )
+
+
+def test_search_and_run_commands_dispatch_compatible_arguments():
+    with patch("paper_watcher.main.run_command") as command:
+        assert main(["search", "--query", "biosensor", "--scope", "all"]) == 0
+        assert command.call_args.kwargs["scope"] == "all"
+
+    with patch("paper_watcher.main.run_command") as command:
+        assert main(["run", "--query", "biosensor"]) == 0
+        assert command.call_args.kwargs["scope"] is None
+
+
+def test_stored_query_preserves_patent_scope(tmp_path: Path):
+    config = Config(
+        database_path=tmp_path / "papers.db",
+        report_dir=tmp_path / "reports",
+        request_timeout=10,
+        max_retries=2,
+        ncbi_email="test@example.com",
+    )
+    initialize_database(config.database_path)
+    with database_connection(config.database_path) as connection:
+        assert add_watch_query(connection, "biosensor", "patents") is not None
+
+    with (
+        patch("paper_watcher.main.load_config", return_value=config),
+        patch(
+            "paper_watcher.main.run",
+            return_value=RunResult(completed_sources=0, total_sources=0),
+        ) as mock_run,
+    ):
+        run_command(query=None, max_results=5)
+
+    assert mock_run.call_args.kwargs["scope"] is SearchScope.PATENTS
+
+
+def test_list_queries_displays_saved_scope(tmp_path: Path, capsys):
+    config = Config(
+        database_path=tmp_path / "papers.db",
+        report_dir=tmp_path / "reports",
+        request_timeout=10,
+        max_retries=2,
+        ncbi_email="test@example.com",
+    )
+    initialize_database(config.database_path)
+    with database_connection(config.database_path) as connection:
+        add_watch_query(connection, "biosensor", "all")
+
+    with patch("paper_watcher.main.load_config", return_value=config):
+        list_queries_command()
+
+    output = capsys.readouterr().out
+    assert "Scope" in output
+    assert "all" in output
+    assert "biosensor" in output
+
+
+def test_run_routes_all_scope_and_writes_combined_report(
     tmp_path: Path,
     capsys,
 ):
@@ -138,9 +222,10 @@ def test_run_queries_both_preprint_servers_and_isolates_failure(
         max_retries=2,
         ncbi_email="test@example.com",
         biorxiv_interval="14d",
+        patent_sources=("lens",),
     )
-    medrxiv_paper = Paper(
-        source="medrxiv",
+    paper = Paper(
+        source="pubmed",
         external_id="10.1101/2026.08.12.111111",
         title="Clinical evaluation of a wearable biosensor",
         authors=["Ada Lovelace"],
@@ -153,62 +238,64 @@ def test_run_queries_both_preprint_servers_and_isolates_failure(
         url="https://doi.org/10.1101/2026.08.12.111111",
     )
 
+    patent = Patent(
+        source="lens",
+        external_id="US123A1",
+        publication_number="US123A1",
+        application_number=None,
+        jurisdiction="US",
+        title="A biosensor patent",
+        abstract="A patent abstract.",
+        inventors=["Grace Hopper"],
+        applicants=["Example Corp"],
+        priority_date="2025-01-01",
+        publication_date="2026-01-01",
+        cpc_codes=["G01N"],
+        ipc_codes=[],
+        family_id=None,
+        citations=[],
+        url="https://example.test/patent",
+    )
+    orchestration = OrchestrationResult(
+        (
+            AdapterResult("pubmed", (paper,), total_count=1),
+            AdapterResult("lens", (patent,), total_count=1),
+            AdapterResult(
+                "failed",
+                warnings=("failed unavailable: temporary outage",),
+                status=SourceStatus.FAILED,
+            ),
+        )
+    )
+
     with (
         patch("paper_watcher.main.load_config", return_value=config),
+        patch("paper_watcher.main.build_builtin_registry"),
+        patch("paper_watcher.main.SearchOrchestrator") as orchestrator_class,
         patch(
-            "paper_watcher.main.search_pubmed",
-            return_value=PubMedSearchResult("biosensor", 0, []),
-        ),
-        patch("paper_watcher.main.fetch_pubmed_articles", return_value=[]),
-        patch(
-            "paper_watcher.main.search_arxiv",
-            return_value=ArxivSearchResult("biosensor", 0, []),
-        ),
-        patch("paper_watcher.main.search_biorxiv") as search_preprints,
-        patch(
-            "paper_watcher.main.write_markdown_report",
+            "paper_watcher.main.write_scoped_markdown_report",
             return_value=tmp_path / "report.md",
         ) as write_report,
     ):
-        search_preprints.side_effect = [
-            APIError("temporary outage"),
-            BiorxivSearchResult(
-                papers=[medrxiv_paper],
-                total_found=1,
-                query="biosensor",
-                server="medrxiv",
-            ),
-        ]
+        orchestrator_class.return_value.search.return_value = orchestration
 
-        run("biosensor", max_results=3)
+        result = run("biosensor", max_results=3, scope="all")
 
-    assert search_preprints.call_args_list == [
-        call(
-            "biosensor",
-            max_results=3,
-            server="biorxiv",
-            interval="14d",
-            since=None,
-            until=None,
-        ),
-        call(
-            "biosensor",
-            max_results=3,
-            server="medrxiv",
-            interval="14d",
-            since=None,
-            until=None,
-        ),
-    ]
+    search_call = orchestrator_class.return_value.search.call_args
+    assert search_call.kwargs["scope"] is SearchScope.ALL
+    assert search_call.kwargs["paper_sources"] == config.paper_sources
+    assert search_call.kwargs["patent_sources"] == config.patent_sources
     report_call = write_report.call_args.kwargs
-    assert len(report_call["papers"]) == 1
-    assert report_call["papers"][0].source == "medrxiv"
-    assert report_call["papers"][0].doi == medrxiv_paper.doi
+    assert report_call["scope"] == "all"
     assert report_call["warnings"] == [
-        "bioRxiv unavailable: temporary outage"
+        "failed unavailable: temporary outage"
     ]
+    assert result.completed_sources == 2
+    assert result.total_sources == 3
 
     output = capsys.readouterr().out
-    assert "bioRxiv unavailable: temporary outage" in output
-    assert "medRxiv papers: 1" in output
-    assert "Sources completed: 3/4" in output
+    assert "PAPERS" in output
+    assert "PATENTS" in output
+    assert "Papers collected: 1" in output
+    assert "Patents collected: 1" in output
+    assert "Sources completed: 2/3" in output

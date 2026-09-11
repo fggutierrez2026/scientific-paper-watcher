@@ -39,7 +39,9 @@ WATCH_QUERIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS watch_queries (
     id INTEGER PRIMARY KEY,
     query TEXT NOT NULL,
-    last_checked_at TEXT
+    last_checked_at TEXT,
+    scope TEXT NOT NULL DEFAULT 'papers'
+        CHECK (scope IN ('papers', 'patents', 'all'))
 );
 """
 
@@ -62,7 +64,8 @@ WATCH_QUERIES_UNIQUE_INDEX = """
 CREATE UNIQUE INDEX IF NOT EXISTS
     ux_watch_queries_query
 ON watch_queries (
-    query
+    query,
+    scope
 );
 """
 
@@ -374,7 +377,13 @@ def initialize_database(
             connection.execute(
                 "ALTER TABLE watch_queries ADD COLUMN last_checked_at TEXT"
             )
+        if "scope" not in watch_query_columns:
+            connection.execute(
+                "ALTER TABLE watch_queries "
+                "ADD COLUMN scope TEXT NOT NULL DEFAULT 'papers'"
+            )
 
+        connection.execute("DROP INDEX IF EXISTS ux_watch_queries_query")
         connection.execute(
             WATCH_QUERIES_UNIQUE_INDEX
         )
@@ -979,23 +988,29 @@ def get_paper_by_id(
 def add_watch_query(
     connection: sqlite3.Connection,
     query: str,
+    scope: str = "papers",
 ) -> int | None:
     cleaned_query = query.strip()
+    cleaned_scope = scope.strip().lower()
 
     if not cleaned_query:
         raise ValueError(
             "Watch query cannot be empty"
         )
+    if cleaned_scope not in {"papers", "patents", "all"}:
+        raise ValueError("Watch query scope must be papers, patents, or all")
 
     cursor = connection.execute(
         """
         INSERT OR IGNORE INTO watch_queries (
-            query
+            query,
+            scope
         )
-        VALUES (?)
+        VALUES (?, ?)
         """,
         (
             cleaned_query,
+            cleaned_scope,
         ),
     )
 
@@ -1062,7 +1077,8 @@ def list_watch_query_rows(
         SELECT
             id,
             query,
-            last_checked_at
+            last_checked_at,
+            scope
         FROM watch_queries
         ORDER BY id
         """

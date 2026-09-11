@@ -64,6 +64,9 @@ class TestSqliteStorage:
             )
             """
         )
+        connection.execute(
+            "INSERT INTO watch_queries (query) VALUES ('legacy query')"
+        )
         connection.commit()
         connection.close()
 
@@ -79,6 +82,11 @@ class TestSqliteStorage:
             for row in connection.execute("PRAGMA table_info(watch_queries)")
         }
         assert "last_checked_at" in watch_columns
+        assert "scope" in watch_columns
+        migrated_scope = connection.execute(
+            "SELECT scope FROM watch_queries"
+        ).fetchone()
+        assert migrated_scope[0] == "papers"
         connection.close()
 
     def test_watch_query_checkpoint_lifecycle(
@@ -100,6 +108,22 @@ class TestSqliteStorage:
         ).fetchone()
 
         assert rows["last_checked_at"] == "2026-09-08T15:30:00+00:00"
+
+    def test_watch_queries_are_unique_by_query_and_scope(
+        self,
+        db_connection: sqlite3.Connection,
+    ):
+        assert add_watch_query(db_connection, "biosensor", "papers") is not None
+        assert add_watch_query(db_connection, "biosensor", "patents") is not None
+        assert add_watch_query(db_connection, "biosensor", "papers") is None
+
+        rows = db_connection.execute(
+            "SELECT query, scope FROM watch_queries ORDER BY id"
+        ).fetchall()
+        assert [(row["query"], row["scope"]) for row in rows] == [
+            ("biosensor", "papers"),
+            ("biosensor", "patents"),
+        ]
 
     def test_insert_single_paper(self, db_connection: sqlite3.Connection, sample_paper: Paper):
         paper_id = insert_paper(db_connection, sample_paper)

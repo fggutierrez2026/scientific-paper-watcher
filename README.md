@@ -2,7 +2,10 @@
 
 Scientific Paper Watcher is a Python command-line application for monitoring scientific literature from **PubMed**, **arXiv**, **bioRxiv**, and **medRxiv**.
 
-It can search scientific papers, normalize results into a common model, store them in SQLite, detect new and known papers, preserve query-to-paper provenance, manage persistent watch queries, execute batch searches, and generate Markdown reports.
+It can search scientific papers and patents through scoped source registries,
+normalize results into canonical models, store them in SQLite, preserve query
+provenance, manage persistent watch queries, execute batch searches, and
+generate Markdown reports.
 
 **Current version: `0.4.0`**
 
@@ -27,8 +30,8 @@ Results from all four sources are normalized into a common `Paper` model before 
 - Canonical patent records ready for upcoming patent source adapters.
 - Patent families that link legal documents without collapsing them.
 - Multi-source patent provenance and verified paper-to-patent citation links.
-- Persistent watch queries.
-- Query-to-paper provenance.
+- Persistent, scoped watch queries.
+- Query-to-paper and query-to-patent provenance.
 - Duplicate protection.
 
 Patent identity is based on the normalized jurisdiction and publication number.
@@ -81,7 +84,7 @@ The normalized query is then translated independently for PubMed and arXiv.
 
 ### Reports
 
-- Per-query Markdown reports.
+- Per-query Markdown reports with separate paper and patent sections.
 - Global report with all stored papers.
 - Query provenance.
 - Source warnings.
@@ -111,8 +114,8 @@ warnings, and source status.
 Paper and patent adapters live in separate ordered registries. The search
 orchestrator selects them from `PAPER_SOURCES` and `PATENT_SOURCES`, isolates an
 operational failure to its source, and coalesces a multi-domain adapter into one
-call when the requested scope is `all`. The current CLI remains paper-only until
-the scoped `search` command is introduced in task 2.4.
+call when the requested scope is `all`. The CLI exposes this routing through the
+`papers`, `patents`, and `all` search scopes.
 
 A shared HTTP client is available for adapters added or migrated during task
 2.3. It centralizes timeouts, retries, `Retry-After`, safe HTTP errors, and
@@ -256,6 +259,7 @@ paper-watcher --help
 Current commands:
 
 ```text
+search
 run
 add-query
 list-queries
@@ -271,13 +275,32 @@ paper-watcher --version
 
 ---
 
-# Run a single query
+# Search papers and patents
 
-Example:
+`search` is the preferred command for a direct query. Its default scope is
+`papers`:
+
+```bash
+paper-watcher search --query "protein design"
+paper-watcher search --query "protein design" --scope patents
+paper-watcher search --query "protein design" --scope all --max-results 10
+```
+
+Results are persisted in their separate paper and patent tables. Console and
+Markdown output use separate sections and show counts for both document types.
+Patent source adapters are introduced in phase 4, so the default configuration
+currently reports an empty patent section with an explanatory warning.
+
+## Compatible `run` command
+
+`run --query` remains a compatibility alias for at least the v0.5 release and
+accepts the same `--scope` values. New scripts should use `search`; `run` remains
+the command for executing all stored watch queries when `--query` is omitted.
 
 ```bash
 paper-watcher run \
     --query "protein design" \
+    --scope papers \
     --max-results 5
 ```
 
@@ -316,11 +339,23 @@ already-known papers from the new-paper report.
 Stored watch queries are incremental automatically. Their first successful run
 performs the normally configured search and records `last_checked_at`; later
 runs use that checkpoint as their lower bound. A checkpoint advances only when
-all four primary sources complete, so a temporary source failure cannot create
-a gap. Explicit `--since` or `--days` values override the stored checkpoint for
+all selected sources complete, so a temporary source failure cannot create a
+gap. Explicit `--since` or `--days` values override the stored checkpoint for
 that execution. The checkpoint also remains unchanged if `--max-results`
 truncates an incremental window; increase the limit and rerun to avoid skipping
-papers.
+documents.
+
+Each stored query retains its scope. Existing databases are migrated to
+`scope='papers'`. Add and inspect scoped queries with:
+
+```bash
+paper-watcher add-query "protein biosensor" --scope all
+paper-watcher list-queries
+paper-watcher run
+```
+
+Passing `--scope` to `paper-watcher run` overrides the saved scope for that
+execution; without it, every stored query uses its persisted scope.
 
 The high-level flow is:
 
