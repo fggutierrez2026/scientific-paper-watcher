@@ -11,7 +11,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 1:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 2:** 2 / 4 tareas principales completadas (50% completada)
+- **Fase 2:** 3 / 4 tareas principales completadas (75% completada)
 - **Fase 3:** 0 / 6 tareas principales completadas
 - **Fase 4:** 0 / 5 tareas principales completadas
 - **Fase 5:** 0 / 5 tareas principales completadas
@@ -87,14 +87,14 @@ Fuentes oficiales para revalidar durante la implementación:
   - [x] Añadir migraciones y pruebas de deduplicación, familias, procedencia y compatibilidad con bases `v0.4.0`.
   - [x] Cerrar con commit sugerido `feat: add canonical patent storage model` y push a GitHub.
 
-- [ ] **Tarea 2.3: Contrato común de adaptadores y orquestador por ámbito**
-  - [ ] Definir un protocolo de adaptador con capacidades (`paper`, `patent`, `discovery`, `enrichment`, filtros temporales y paginación).
-  - [ ] Crear registros separados de fuentes para papers y patentes, con orden estable y selección configurable.
-  - [ ] Normalizar resultados en `Paper` o `Patent` y devolver conteos, cursor, truncamiento, advertencias y estado de la fuente.
-  - [ ] Reutilizar timeouts, reintentos, `Retry-After`, redacción de credenciales y aislamiento de fallos en un cliente HTTP común sin eliminar particularidades de cada proveedor.
-  - [ ] Impedir llamadas duplicadas a Lens en el modo `all` coordinando sus endpoints scholarly y patent.
-  - [ ] Añadir pruebas contractuales reutilizables que todo adaptador deba superar.
-  - [ ] Cerrar con commit sugerido `refactor: add scoped source adapter registry` y push a GitHub.
+- [x] **Tarea 2.3: Contrato común de adaptadores y orquestador por ámbito**
+  - [x] Definir un protocolo de adaptador con capacidades (`paper`, `patent`, `discovery`, `enrichment`, filtros temporales y paginación).
+  - [x] Crear registros separados de fuentes para papers y patentes, con orden estable y selección configurable.
+  - [x] Normalizar resultados en `Paper` o `Patent` y devolver conteos, cursor, truncamiento, advertencias y estado de la fuente.
+  - [x] Reutilizar timeouts, reintentos, `Retry-After`, redacción de credenciales y aislamiento de fallos en un cliente HTTP común sin eliminar particularidades de cada proveedor.
+  - [x] Impedir llamadas duplicadas a Lens en el modo `all` coordinando sus endpoints scholarly y patent.
+  - [x] Añadir pruebas contractuales reutilizables que todo adaptador deba superar.
+  - [x] Cerrar con commit sugerido `refactor: add scoped source adapter registry` y push a GitHub.
 
 - [ ] **Tarea 2.4: Comando de búsqueda y ámbito predeterminado `papers`**
   - [ ] Añadir `paper-watcher search --query QUERY --scope papers|patents|all`, con `papers` como valor predeterminado.

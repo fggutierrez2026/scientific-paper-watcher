@@ -7,32 +7,12 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import requests
-from tenacity import (
-    Retrying,
-    before_sleep_log,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from paper_watcher.config import load_config
-from paper_watcher.exceptions import (
-    APIError,
-    InvalidResponseError,
-    NetworkError,
-    RateLimitError,
-    RequestTimeoutError,
-    ServiceUnavailableError,
-)
+from paper_watcher.exceptions import InvalidResponseError
+from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.models import Paper
 from paper_watcher.time_window import format_arxiv_date, validate_window
-
-ARXIV_RETRYABLE_EXCEPTIONS = (
-    RequestTimeoutError,
-    NetworkError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
 
 ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
@@ -234,41 +214,10 @@ def _respect_arxiv_rate_limit() -> None:
 
     _last_arxiv_request_at = time.monotonic()
 
-def _check_arxiv_status(
-    response: requests.Response,
-) -> None:
-    status_code = response.status_code
-
-    if status_code == 429:
-        logger.warning(
-            "arXiv rate limit reached: HTTP 429"
-        )
-
-        raise RateLimitError(
-            "arXiv rate limit reached (HTTP 429)"
-        )
-
-    if status_code in {500, 502, 503, 504}:
-        logger.warning(
-            "arXiv temporarily unavailable: HTTP %d",
-            status_code,
-        )
-
-        raise ServiceUnavailableError(
-            f"arXiv temporarily unavailable "
-            f"(HTTP {status_code})"
-        )
-
-    try:
-        response.raise_for_status()
-
-    except requests.exceptions.HTTPError as exc:
-        raise APIError(
-            f"arXiv returned HTTP {status_code}"
-        ) from exc
-
-def _request_arxiv_once(
+def _get_arxiv(
     params: dict[str, str | int],
+    *,
+    http_client: HttpClient | None = None,
 ) -> requests.Response:
     config = load_config()
 
@@ -278,78 +227,20 @@ def _request_arxiv_once(
         "Requesting arXiv API"
     )
 
-    try:
-        response = requests.get(
-            ARXIV_API_URL,
-            params=params,
-            timeout=config.request_timeout,
-            headers={
-                "User-Agent":
-                    "scientific-paper-watcher/0.0.1"
-            },
-        )
-
-    except requests.exceptions.Timeout as exc:
-        logger.error(
-            "arXiv request timed out after %d seconds",
+    client = http_client or HttpClient(
+        HttpPolicy(
             config.request_timeout,
+            config.max_retries,
+            backoff_min=3,
+            backoff_max=12,
         )
-
-        raise RequestTimeoutError(
-            f"arXiv request timed out after "
-            f"{config.request_timeout} seconds"
-        ) from exc
-
-    except requests.exceptions.ConnectionError as exc:
-        logger.error(
-            "Could not connect to arXiv"
-        )
-
-        raise NetworkError(
-            "Could not connect to arXiv"
-        ) from exc
-
-    except requests.exceptions.RequestException as exc:
-        logger.error(
-            "Unexpected arXiv request error: %s",
-            exc,
-        )
-
-        raise APIError(
-            "Unexpected error while requesting arXiv"
-        ) from exc
-
-    _check_arxiv_status(response)
-
-    return response
-
-def _get_arxiv(
-    params: dict[str, str | int],
-) -> requests.Response:
-    config = load_config()
-
-    retryer = Retrying(
-        retry=retry_if_exception_type(
-            ARXIV_RETRYABLE_EXCEPTIONS
-        ),
-        stop=stop_after_attempt(
-            config.max_retries + 1
-        ),
-        wait=wait_exponential(
-            multiplier=3,
-            min=3,
-            max=12,
-        ),
-        before_sleep=before_sleep_log(
-            logger,
-            logging.WARNING,
-        ),
-        reraise=True,
     )
-
-    return retryer(
-        _request_arxiv_once,
-        params,
+    return client.request(
+        "GET",
+        ARXIV_API_URL,
+        provider="arXiv",
+        params=params,
+        headers={"User-Agent": "scientific-paper-watcher/0.0.1"},
     )
 
 def search_arxiv(
@@ -357,6 +248,8 @@ def search_arxiv(
     max_results: int = 5,
     since: datetime | None = None,
     until: datetime | None = None,
+    *,
+    http_client: HttpClient | None = None,
 ) -> ArxivSearchResult:
     cleaned_query = query.strip()
     since, until = validate_window(since, until)
@@ -382,7 +275,10 @@ def search_arxiv(
         max_results,
     )
 
-    response = _get_arxiv(params)
+    if http_client is None:
+        response = _get_arxiv(params)
+    else:
+        response = _get_arxiv(params, http_client=http_client)
 
     papers = parse_arxiv_xml(
         response.content

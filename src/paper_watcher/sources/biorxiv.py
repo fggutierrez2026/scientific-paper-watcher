@@ -7,23 +7,10 @@ from datetime import datetime
 from typing import Any
 
 import requests
-from tenacity import (
-    Retrying,
-    before_sleep_log,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from paper_watcher.config import load_config
-from paper_watcher.exceptions import (
-    APIError,
-    InvalidResponseError,
-    NetworkError,
-    RateLimitError,
-    RequestTimeoutError,
-    ServiceUnavailableError,
-)
+from paper_watcher.exceptions import InvalidResponseError
+from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.models import Paper
 from paper_watcher.query_language import matches_query
 from paper_watcher.time_window import format_biorxiv_date, validate_window
@@ -32,14 +19,6 @@ logger = logging.getLogger(__name__)
 
 BIORXIV_BASE_URL = "https://api.biorxiv.org/details"
 BIORXIV_SERVERS = ("biorxiv", "medrxiv")
-
-BIORXIV_RETRYABLE_EXCEPTIONS = (
-    RequestTimeoutError,
-    NetworkError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
-
 
 @dataclass(frozen=True)
 class BiorxivSearchResult:
@@ -53,60 +32,16 @@ class BiorxivSearchResult:
 def _get_biorxiv(
     url: str,
     params: dict[str, Any] | None = None,
+    *,
+    http_client: HttpClient | None = None,
 ) -> requests.Response:
     config = load_config()
-
-    retryer = Retrying(
-        stop=stop_after_attempt(config.max_retries),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type(BIORXIV_RETRYABLE_EXCEPTIONS),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
+    client = http_client or HttpClient(
+        HttpPolicy(config.request_timeout, config.max_retries, backoff_max=10)
     )
-
-    for attempt in retryer:
-        with attempt:
-            try:
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=config.request_timeout,
-                )
-            except requests.exceptions.Timeout as exc:
-                raise RequestTimeoutError(
-                    "bioRxiv/medRxiv request timed out after "
-                    f"{config.request_timeout}s"
-                ) from exc
-            except requests.exceptions.ConnectionError as exc:
-                raise NetworkError(
-                    f"bioRxiv/medRxiv network connection failed: {exc}"
-                ) from exc
-            except requests.exceptions.RequestException as exc:
-                raise APIError(
-                    f"bioRxiv/medRxiv request failed: {exc}"
-                ) from exc
-
-            status = response.status_code
-
-            if status == 429:
-                raise RateLimitError(
-                    "bioRxiv/medRxiv rate limit reached (HTTP 429)"
-                )
-
-            if 500 <= status < 600:
-                raise ServiceUnavailableError(
-                    f"bioRxiv/medRxiv server error: HTTP {status}"
-                )
-
-            if not response.ok:
-                raise APIError(
-                    "bioRxiv/medRxiv API returned "
-                    f"HTTP {status}: {response.text[:200]}"
-                )
-
-            return response
-
-    raise APIError("bioRxiv/medRxiv request failed after all retries")
+    return client.request(
+        "GET", url, provider="bioRxiv/medRxiv", params=params
+    )
 
 
 def parse_biorxiv_json(
@@ -187,6 +122,8 @@ def search_biorxiv(
     max_pages: int = 5,
     since: datetime | None = None,
     until: datetime | None = None,
+    *,
+    http_client: HttpClient | None = None,
 ) -> BiorxivSearchResult:
     """
     Searches bioRxiv/medRxiv for preprints in the specified interval matching `query`.
@@ -225,7 +162,10 @@ def search_biorxiv(
     while len(matching_papers) < max_results and pages_fetched < max_pages:
         url = f"{BIORXIV_BASE_URL}/{server_to_use}/{interval_to_use}/{cursor}"
 
-        response = _get_biorxiv(url)
+        if http_client is None:
+            response = _get_biorxiv(url)
+        else:
+            response = _get_biorxiv(url, http_client=http_client)
 
         try:
             payload = response.json()

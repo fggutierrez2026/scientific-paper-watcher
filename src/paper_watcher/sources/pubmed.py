@@ -3,27 +3,13 @@ from __future__ import annotations
 import logging
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
+from datetime import datetime
 
 import requests
-from tenacity import (
-    Retrying,
-    before_sleep_log,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from paper_watcher.config import load_config
-from paper_watcher.exceptions import (
-    APIError,
-    InvalidResponseError,
-    NetworkError,
-    RateLimitError,
-    RequestTimeoutError,
-    ServiceUnavailableError,
-)
+from paper_watcher.exceptions import InvalidResponseError
+from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.models import Paper
 from paper_watcher.time_window import format_pubmed_date, validate_window
 
@@ -39,198 +25,17 @@ TOOL_NAME = "scientific-paper-watcher"
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_EXCEPTIONS = (
-    RequestTimeoutError,
-    NetworkError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
-
-DEFAULT_RETRY_WAIT = wait_exponential(
-    multiplier=2,
-    min=2,
-    max=8,
-)
-
-def _parse_retry_after(
-    value: str | None,
-) -> float | None:
-    if not value:
-        return None
-
-    value = value.strip()
-
-    # Caso 1: Retry-After expresado en segundos.
-    try:
-        seconds = float(value)
-
-        if seconds >= 0:
-            return seconds
-
-    except ValueError:
-        pass
-
-    # Caso 2: Retry-After expresado como fecha HTTP.
-    try:
-        retry_time = parsedate_to_datetime(value)
-
-    except (TypeError, ValueError, OverflowError):
-        logger.warning(
-            "Invalid Retry-After header received: %r",
-            value,
-        )
-
-        return None
-
-    if retry_time.tzinfo is None:
-        retry_time = retry_time.replace(
-            tzinfo=UTC
-        )
-
-    delay = (
-        retry_time
-        - datetime.now(UTC)
-    ).total_seconds()
-
-    return max(0.0, delay)
-
-def _request_pubmed_once(
-    url: str,
-    params: dict[str, str | int],
-    timeout: int,) -> requests.Response:
-
-    try:
-        response = requests.get(
-            url,
-            params=params,
-            timeout=timeout,
-        )
-
-    except requests.exceptions.Timeout as exc:
-        logger.error(
-            "PubMed request timed out after %d seconds",
-            timeout,
-        )
-
-        raise RequestTimeoutError(
-            f"PubMed request timed out after {timeout} seconds"
-        ) from exc
-
-    except requests.exceptions.ConnectionError as exc:
-        logger.error(
-            "Could not connect to PubMed"
-        )
-
-        raise NetworkError(
-            "Could not connect to PubMed"
-        ) from exc
-
-    except requests.exceptions.RequestException as exc:
-        logger.error(
-            "Unexpected error while requesting PubMed: %s",
-            exc,
-        )
-
-        raise APIError(
-            "Unexpected error while requesting PubMed"
-        ) from exc
-
-    _check_response_status(response)
-
-    return response
-
-def _wait_for_retry(retry_state) -> float:
-    exception = None
-
-    if retry_state.outcome is not None:
-        exception = retry_state.outcome.exception()
-
-    if (
-        isinstance(exception, RateLimitError)
-        and exception.retry_after is not None
-    ):
-        logger.info(
-            "Respecting server Retry-After: %.1f seconds",
-            exception.retry_after,
-        )
-
-        return exception.retry_after
-
-    return DEFAULT_RETRY_WAIT(retry_state)
-
 def _get_pubmed(
     url: str,
     params: dict[str, str | int],
+    *,
+    http_client: HttpClient | None = None,
 ) -> requests.Response:
     config = load_config()
-
-    retryer = Retrying(
-        retry=retry_if_exception_type(
-            RETRYABLE_EXCEPTIONS
-        ),
-        stop=stop_after_attempt(
-            config.max_retries + 1
-        ),
-        wait=_wait_for_retry,
-        before_sleep=before_sleep_log(
-            logger,
-            logging.WARNING,
-        ),
-        reraise=True,
+    client = http_client or HttpClient(
+        HttpPolicy(config.request_timeout, config.max_retries)
     )
-
-    return retryer(
-        _request_pubmed_once,
-        url,
-        params,
-        config.request_timeout,
-    )
-
-def _check_response_status(
-    response: requests.Response,
-) -> None:
-    status_code = response.status_code
-
-    if status_code == 429:
-        retry_after = _parse_retry_after(
-            response.headers.get("Retry-After")
-        )
-
-        logger.warning(
-            "PubMed rate limit reached: HTTP %d "
-            "retry_after=%s",
-            status_code,
-            retry_after,
-        )
-
-        raise RateLimitError(
-            "PubMed rate limit reached (HTTP 429)",
-            retry_after=retry_after,
-        )
-
-    if status_code in {500, 502, 503, 504}:
-        logger.warning(
-            "PubMed service temporarily unavailable: HTTP %d",
-            status_code,
-        )
-
-        raise ServiceUnavailableError(
-            f"PubMed service temporarily unavailable "
-            f"(HTTP {status_code})"
-        )
-
-    try:
-        response.raise_for_status()
-
-    except requests.exceptions.HTTPError as exc:
-        logger.error(
-            "PubMed returned HTTP %d",
-            status_code,
-        )
-
-        raise APIError(
-            f"PubMed returned HTTP {status_code}"
-        ) from exc
+    return client.request("GET", url, provider="PubMed", params=params)
     
 @dataclass(frozen=True)
 class PubMedSearchResult:
@@ -243,6 +48,8 @@ def search_pubmed(
     max_results: int = 5,
     since: datetime | None = None,
     until: datetime | None = None,
+    *,
+    http_client: HttpClient | None = None,
 ) -> PubMedSearchResult:
 
     """
@@ -286,7 +93,10 @@ def search_pubmed(
         max_results,
     )
 
-    response = _get_pubmed(ESEARCH_URL, params)
+    if http_client is None:
+        response = _get_pubmed(ESEARCH_URL, params)
+    else:
+        response = _get_pubmed(ESEARCH_URL, params, http_client=http_client)
 
     try:
         data = response.json()
@@ -326,7 +136,9 @@ def search_pubmed(
         pmids=pmids,
     )
 
-def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
+def fetch_pubmed_articles(
+    pmids: list[str], *, http_client: HttpClient | None = None
+) -> list[Paper]:
     """
     Fetch detailed information for a list of PubMed IDs (PMIDs).
 
@@ -350,10 +162,12 @@ def fetch_pubmed_articles(pmids: list[str]) -> list[Paper]:
     if config.ncbi_api_key:
         params["api_key"] = config.ncbi_api_key
 
-    response = _get_pubmed(
-        EFETCH_URL,
-        params=params,
-    )
+    if http_client is None:
+        response = _get_pubmed(EFETCH_URL, params=params)
+    else:
+        response = _get_pubmed(
+            EFETCH_URL, params=params, http_client=http_client
+        )
 
     papers = parse_pubmed_xml(response.content)
 

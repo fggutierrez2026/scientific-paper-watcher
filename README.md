@@ -100,6 +100,27 @@ The normalized query is then translated independently for PubMed and arXiv.
 - arXiv request throttling.
 - SQLite uniqueness constraints.
 
+### Adapter architecture (v0.5.0 foundation)
+
+Source integrations expose a common, typed adapter contract. Capabilities state
+whether an adapter discovers or enriches papers, patents, or both, together with
+its temporal-filter and pagination behavior. Every adapter returns canonical
+`Paper`/`Patent` records plus provider-independent counts, cursors, truncation,
+warnings, and source status.
+
+Paper and patent adapters live in separate ordered registries. The search
+orchestrator selects them from `PAPER_SOURCES` and `PATENT_SOURCES`, isolates an
+operational failure to its source, and coalesces a multi-domain adapter into one
+call when the requested scope is `all`. The current CLI remains paper-only until
+the scoped `search` command is introduced in task 2.4.
+
+A shared HTTP client is available for adapters added or migrated during task
+2.3. It centralizes timeouts, retries, `Retry-After`, safe HTTP errors, and
+credential redaction while allowing each provider to retain custom response
+validation. PubMed, arXiv, bioRxiv/medRxiv, and OpenAlex use this client;
+arXiv keeps its provider-specific request throttling and OpenAlex keeps its
+valid not-found behavior.
+
 ---
 
 # Installation

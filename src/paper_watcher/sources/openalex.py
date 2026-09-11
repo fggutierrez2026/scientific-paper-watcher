@@ -6,24 +6,13 @@ from typing import Any
 from urllib.parse import quote
 
 import requests
-from tenacity import (
-    Retrying,
-    before_sleep_log,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from paper_watcher.config import load_config
 from paper_watcher.exceptions import (
-    APIError,
     InvalidResponseError,
-    NetworkError,
     PaperWatcherError,
-    RateLimitError,
-    RequestTimeoutError,
-    ServiceUnavailableError,
 )
+from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.models import Paper
 from paper_watcher.normalization import normalize_doi, normalize_title
 
@@ -39,14 +28,6 @@ OPENALEX_SELECT = ",".join(
         "best_oa_location",
     )
 )
-OPENALEX_RETRYABLE_EXCEPTIONS = (
-    RequestTimeoutError,
-    NetworkError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
-
-
 @dataclass(frozen=True)
 class OpenAlexMetadata:
     openalex_id: str
@@ -66,52 +47,20 @@ class OpenAlexEnrichmentResult:
 def _get_openalex(
     url: str,
     params: dict[str, str | int],
+    *,
+    http_client: HttpClient | None = None,
 ) -> requests.Response:
     config = load_config()
-    retryer = Retrying(
-        stop=stop_after_attempt(config.max_retries),
-        wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type(OPENALEX_RETRYABLE_EXCEPTIONS),
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
+    client = http_client or HttpClient(
+        HttpPolicy(config.request_timeout, config.max_retries, backoff_max=10)
     )
-
-    for attempt in retryer:
-        with attempt:
-            try:
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=config.request_timeout,
-                )
-            except requests.exceptions.Timeout as exc:
-                raise RequestTimeoutError(
-                    f"OpenAlex request timed out after {config.request_timeout}s"
-                ) from exc
-            except requests.exceptions.ConnectionError as exc:
-                raise NetworkError(
-                    f"OpenAlex network connection failed: {exc}"
-                ) from exc
-            except requests.exceptions.RequestException as exc:
-                raise APIError(f"OpenAlex request failed: {exc}") from exc
-
-            if response.status_code == 429:
-                raise RateLimitError("OpenAlex rate limit reached (HTTP 429)")
-            if 500 <= response.status_code < 600:
-                raise ServiceUnavailableError(
-                    f"OpenAlex server error: HTTP {response.status_code}"
-                )
-            if response.status_code == 404:
-                return response
-            if not response.ok:
-                raise APIError(
-                    "OpenAlex API returned "
-                    f"HTTP {response.status_code}: {response.text[:200]}"
-                )
-
-            return response
-
-    raise APIError("OpenAlex request failed after all retries")
+    return client.request(
+        "GET",
+        url,
+        provider="OpenAlex",
+        params=params,
+        allowed_statuses={404},
+    )
 
 
 def parse_openalex_work(data: dict[str, Any]) -> OpenAlexMetadata:
