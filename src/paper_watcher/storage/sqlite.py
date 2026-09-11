@@ -555,6 +555,47 @@ def find_paper_id_by_source_identity(
 
     return None
 
+
+def find_paper_id_by_external_identifiers(
+    connection: sqlite3.Connection,
+    paper: Paper,
+) -> int | None:
+    """Resolve cross-source IDs supplied by discovery aggregators."""
+    identifiers = (
+        ("pubmed", paper.external_ids.get("pmid")),
+        ("arxiv", paper.external_ids.get("arxiv")),
+    )
+    for source, external_id in identifiers:
+        if not external_id:
+            continue
+        if source == "arxiv":
+            row = connection.execute(
+                """
+                SELECT paper_id
+                FROM paper_sources
+                WHERE source = ?
+                  AND (external_id = ? OR external_id LIKE ?)
+                ORDER BY id
+                LIMIT 1
+                """,
+                (source, external_id, f"{external_id}v%"),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT paper_id
+                FROM paper_sources
+                WHERE source = ? AND external_id = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (source, external_id),
+            ).fetchone()
+        if row is not None:
+            return int(row["paper_id"])
+    return None
+
+
 def find_paper_id_by_doi(
     connection: sqlite3.Connection,
     doi: str | None,
@@ -764,10 +805,13 @@ def insert_papers(
             continue
 
         # 2. Coincidencia cross-source por DOI o Título+Autor
-        matched_id = find_paper_id_by_doi(
-            connection,
-            paper.doi,
-        )
+        matched_id = find_paper_id_by_external_identifiers(connection, paper)
+
+        if matched_id is None:
+            matched_id = find_paper_id_by_doi(
+                connection,
+                paper.doi,
+            )
 
         if matched_id is None:
             matched_id = find_paper_id_by_title_and_author(

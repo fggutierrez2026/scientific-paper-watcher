@@ -102,8 +102,13 @@ def render_paper_markdown(
         )
 
     if paper.citation_count is not None:
+        citation_source = (
+            "OpenAlex"
+            if paper.openalex_id
+            else paper.source.replace("_", " ").title()
+        )
         lines.append(
-            f"- **Citations (OpenAlex):** {paper.citation_count}"
+            f"- **Citations ({citation_source}):** {paper.citation_count}"
         )
 
     if paper.topics:

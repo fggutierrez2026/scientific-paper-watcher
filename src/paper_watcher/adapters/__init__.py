@@ -11,7 +11,10 @@ from paper_watcher.adapters.base import (
     SourceStatus,
     TemporalFilterKind,
 )
-from paper_watcher.adapters.builtin import build_builtin_registry
+from paper_watcher.adapters.builtin import (
+    SemanticScholarAdapter,
+    build_builtin_registry,
+)
 from paper_watcher.adapters.orchestrator import (
     OrchestrationResult,
     SearchOrchestrator,
@@ -31,6 +34,7 @@ __all__ = [
     "SearchOrchestrator",
     "SearchRequest",
     "SearchScope",
+    "SemanticScholarAdapter",
     "SourceAdapter",
     "SourceStatus",
     "TemporalFilterKind",

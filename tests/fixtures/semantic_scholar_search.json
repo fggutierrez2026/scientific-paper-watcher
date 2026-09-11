@@ -1,0 +1,50 @@
+{
+  "total": 2,
+  "offset": 0,
+  "next": 2,
+  "data": [
+    {
+      "paperId": "s2-paper-001",
+      "corpusId": 987654321,
+      "externalIds": {
+        "DOI": "10.1000/BIOSENSOR.1",
+        "PubMed": "12345678",
+        "ArXiv": "2608.12345"
+      },
+      "url": "https://www.semanticscholar.org/paper/s2-paper-001",
+      "title": "  Engineering glucose biosensors  ",
+      "abstract": "A protein engineering study.",
+      "authors": [
+        {"authorId": "1", "name": "Alice Smith"},
+        {"authorId": "2", "name": "Bob Jones"}
+      ],
+      "venue": "Biosensors Journal",
+      "year": 2026,
+      "publicationDate": "2026-08-12",
+      "citationCount": 42,
+      "s2FieldsOfStudy": [
+        {"category": "Biology", "source": "s2-fos-model"},
+        {"category": "Engineering", "source": "external"}
+      ],
+      "openAccessPdf": {
+        "url": "https://example.test/paper.pdf",
+        "status": "GREEN"
+      }
+    },
+    {
+      "paperId": "s2-paper-002",
+      "corpusId": 987654322,
+      "externalIds": null,
+      "url": null,
+      "title": "Biosensor calibration",
+      "abstract": null,
+      "authors": [],
+      "venue": null,
+      "year": 2025,
+      "publicationDate": null,
+      "citationCount": null,
+      "s2FieldsOfStudy": null,
+      "openAccessPdf": null
+    }
+  ]
+}

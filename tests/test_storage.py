@@ -301,6 +301,37 @@ class TestSqliteStorage:
         assert len(rows) == 1
         assert "arxiv" in rows[0].source and "pubmed" in rows[0].source
 
+    def test_semantic_scholar_merges_by_mapped_pubmed_id(
+        self,
+        db_connection: sqlite3.Connection,
+        sample_paper: Paper,
+    ):
+        first = insert_papers(db_connection, [sample_paper])
+        semantic_paper = Paper(
+            source="semantic_scholar",
+            external_id="s2-123",
+            title="A deliberately different title",
+            authors=["Different Author"],
+            abstract=None,
+            journal=None,
+            publication_date="2026",
+            electronic_date=None,
+            pubmed_date=None,
+            doi=None,
+            url="https://www.semanticscholar.org/paper/s2-123",
+            external_ids={
+                "semantic_scholar": "s2-123",
+                "pmid": sample_paper.external_id,
+            },
+        )
+
+        merged = insert_papers(db_connection, [semantic_paper])
+
+        assert first.inserted_count == 1
+        assert merged.inserted_count == 0
+        assert merged.merged_count == 1
+        assert count_papers(db_connection) == 1
+
     def test_cross_source_merging_by_title_and_author(self, db_connection: sqlite3.Connection):
         arxiv_paper = Paper(
             source="arxiv",

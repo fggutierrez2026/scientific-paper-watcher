@@ -12,7 +12,7 @@ Plan de desarrollo incremental para evolucionar el repositorio desde la versión
 - **Fase 0:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 1:** 4 / 4 tareas principales completadas (100% completada)
 - **Fase 2:** 4 / 4 tareas principales completadas (100% completada)
-- **Fase 3:** 0 / 6 tareas principales completadas
+- **Fase 3:** 1 / 6 tareas principales completadas (17% completada)
 - **Fase 4:** 0 / 5 tareas principales completadas
 - **Fase 5:** 0 / 5 tareas principales completadas
 - **Fase 6:** 0 / 3 tareas principales completadas
@@ -111,13 +111,13 @@ Fuentes oficiales para revalidar durante la implementación:
 
 **Objetivo:** Ampliar cobertura científica sin multiplicar duplicados ni convertir enriquecedores en fuentes de descubrimiento indiscriminadas.
 
-- [ ] **Tarea 3.1: Adaptador Semantic Scholar**
-  - [ ] Implementar búsqueda paginada con campos explícitos para ID, DOI, PMID, arXiv ID, título, abstract, autores, venue, fechas, citas, tópicos y PDF OA.
-  - [ ] Crear una traducción documentada desde la consulta común a texto plano, ya que el endpoint de relevancia no soporta operadores booleanos.
-  - [ ] Implementar filtros de fecha, límites, `x-api-key`, `429` y reintentos respetando `Retry-After`.
-  - [ ] Mapear identificadores para deduplicar contra PubMed, arXiv, Crossref y OpenAlex.
-  - [ ] Añadir fixtures JSON, pruebas de parseo, paginación, fechas, errores y aislamiento.
-  - [ ] Cerrar con commit sugerido `feat: integrate Semantic Scholar paper search` y push a GitHub.
+- [x] **Tarea 3.1: Adaptador Semantic Scholar**
+  - [x] Implementar búsqueda paginada con campos explícitos para ID, DOI, PMID, arXiv ID, título, abstract, autores, venue, fechas, citas, tópicos y PDF OA.
+  - [x] Crear una traducción documentada desde la consulta común a texto plano, ya que el endpoint de relevancia no soporta operadores booleanos.
+  - [x] Implementar filtros de fecha, límites, `x-api-key`, `429` y reintentos respetando `Retry-After`.
+  - [x] Mapear identificadores para deduplicar contra PubMed, arXiv, Crossref y OpenAlex.
+  - [x] Añadir fixtures JSON, pruebas de parseo, paginación, fechas, errores y aislamiento.
+  - [x] Cerrar con commit sugerido `feat: integrate Semantic Scholar paper search` y push a GitHub.
 
 - [ ] **Tarea 3.2: Adaptador Crossref**
   - [ ] Implementar `/works` con `query.bibliographic`, `select`, cursor y filtros `from-update-date`/`until-update-date` para búsquedas incrementales.

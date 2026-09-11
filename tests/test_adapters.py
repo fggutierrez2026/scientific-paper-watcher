@@ -109,7 +109,13 @@ def test_builtin_adapters_pass_reusable_contract(tmp_path):
     )
     registry = build_builtin_registry(config)
 
-    assert registry.papers.names == ("pubmed", "arxiv", "biorxiv", "medrxiv")
+    assert registry.papers.names == (
+        "pubmed",
+        "arxiv",
+        "biorxiv",
+        "medrxiv",
+        "semantic_scholar",
+    )
     for adapter in registry.papers.select(registry.papers.names):
         assert_adapter_contract(adapter, DocumentKind.PAPER)
 

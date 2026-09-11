@@ -124,6 +124,27 @@ validation. PubMed, arXiv, bioRxiv/medRxiv, and OpenAlex use this client;
 arXiv keeps its provider-specific request throttling and OpenAlex keeps its
 valid not-found behavior.
 
+### Semantic Scholar
+
+Semantic Scholar relevance search is available as an opt-in paper source:
+
+```env
+PAPER_SOURCES=pubmed,arxiv,biorxiv,medrxiv,semantic_scholar
+SEMANTIC_SCHOLAR_API_KEY=
+```
+
+The key is optional and, when configured, is sent only in the `x-api-key`
+header. The adapter requests explicit bibliographic, identifier, citation,
+field-of-study, and open-access PDF fields; paginates in relevance order; and
+uses the native `publicationDateOrYear` filter for incremental windows.
+
+The relevance endpoint does not support the watcher's Boolean syntax. Its
+translation removes `AND`, `OR`, and grouping, omits terms governed by `NOT`,
+and replaces hyphens with spaces. For example,
+`("protein-design" OR biosensor) NOT cancer` becomes
+`protein design biosensor`. The original normalized query remains attached to
+stored provenance. The endpoint is capped at 1,000 relevance-ranked results.
+
 ---
 
 # Installation

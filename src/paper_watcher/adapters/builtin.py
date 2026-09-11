@@ -11,12 +11,13 @@ from paper_watcher.adapters.base import (
     TemporalFilterKind,
 )
 from paper_watcher.adapters.registry import ScopedAdapterRegistry
-from paper_watcher.config import Config
+from paper_watcher.config import Config, validate_source_access
 from paper_watcher.http import HttpClient, HttpPolicy
 from paper_watcher.query_language import to_arxiv_query, to_pubmed_query
 from paper_watcher.sources.arxiv import search_arxiv
 from paper_watcher.sources.biorxiv import search_biorxiv
 from paper_watcher.sources.pubmed import fetch_pubmed_articles, search_pubmed
+from paper_watcher.sources.semantic_scholar import search_semantic_scholar
 
 PAPER_DISCOVERY_CAPABILITIES = AdapterCapabilities(
     document_kinds=frozenset({DocumentKind.PAPER}),
@@ -109,6 +110,37 @@ class PreprintAdapter:
         )
 
 
+@dataclass(frozen=True)
+class SemanticScholarAdapter:
+    config: Config = field(repr=False, compare=False)
+    http_client: HttpClient
+    name: str = "semantic_scholar"
+    call_group: str = "semantic_scholar"
+    capabilities: AdapterCapabilities = PAPER_DISCOVERY_CAPABILITIES
+
+    def search(self, request: SearchRequest) -> AdapterResult:
+        validate_source_access(self.config, self.name, "paper")
+        result = search_semantic_scholar(
+            request.query,
+            max_results=request.max_results,
+            http_client=self.http_client,
+            api_key=self.config.semantic_scholar_api_key,
+            since=request.since,
+            until=request.until,
+            cursor=request.cursor,
+        )
+        return AdapterResult(
+            source=self.name,
+            documents=tuple(result.papers),
+            total_count=result.total_count,
+            cursor=(
+                str(result.next_offset)
+                if result.next_offset is not None
+                else None
+            ),
+            truncated=result.truncated,
+            warnings=result.warnings,
+        )
 def build_builtin_registry(config: Config) -> ScopedAdapterRegistry:
     """Return adapters implemented in the current release, in stable order."""
     http_client = HttpClient(
@@ -127,4 +159,5 @@ def build_builtin_registry(config: Config) -> ScopedAdapterRegistry:
             "medrxiv", config.biorxiv_interval, http_client=http_client
         )
     )
+    registry.register(SemanticScholarAdapter(config, http_client))
     return registry
