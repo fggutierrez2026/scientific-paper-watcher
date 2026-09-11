@@ -199,6 +199,7 @@ def test_verbose_report_all_uses_detailed_rows(tmp_path: Path, sample_paper: Pap
     assert len(reports) == 1
     content = reports[0].read_text(encoding="utf-8")
     assert sample_paper.title in content
+    assert sample_paper.abstract is not None
     assert sample_paper.abstract in content
 
 

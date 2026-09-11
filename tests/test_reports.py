@@ -119,6 +119,7 @@ def test_verbose_all_papers_report_includes_details_and_abstract(
     assert "# Scientific Paper Watcher - Detailed Paper Report" in rendered
     assert "**Papers:** 1" in content
     assert sample_paper.title in content
+    assert sample_paper.abstract is not None
     assert sample_paper.abstract in content
     assert "**Matched queries:** protein design, biosensors" in content
     assert report_path.name.startswith("all-papers-detailed_")
